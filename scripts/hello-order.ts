@@ -3,7 +3,8 @@ import { appendLedgerEvent } from "../src/lib/ledger";
 import { PayPalApiError, createPayPalClient } from "../src/lib/paypal/client";
 import { readPayPalEnv } from "../src/lib/paypal/config";
 import { captureOrder, confirmCardPayment, createOrder, getOrder, helloOrderBody } from "../src/lib/paypal/orders";
-import { approvalUrl, captureId, type PayPalOrder } from "../src/lib/paypal/schema";
+import { paypalRequestId } from "../src/lib/paypal/request-id";
+import { approvalUrl, captureId, orderAmount, type PayPalOrder } from "../src/lib/paypal/schema";
 
 const MANUAL_APPROVAL_EXIT = 2;
 
@@ -31,7 +32,8 @@ async function main() {
 async function createConfirmAndCapture(client: ReturnType<typeof createPayPalClient>) {
   let created: PayPalOrder;
   try {
-    created = await createOrder(client, helloOrderBody());
+    const body = helloOrderBody();
+    created = await createOrder(client, body, `hello-order:create:${paypalRequestId(JSON.stringify(body))}`);
   } catch (error) {
     await recordFailure("create", null, error);
     throw error;
@@ -49,9 +51,20 @@ async function createConfirmAndCapture(client: ReturnType<typeof createPayPalCli
   }
   console.log(`Created order ${created.id} (${created.status}).`);
 
+  if (created.status === "PAYER_ACTION_REQUIRED") {
+    await appendLedgerEvent({
+      type: "paypal.order.payer_action_required",
+      mandateId: null,
+      payload: orderPayload(created),
+    });
+    printManualApproval(created);
+    process.exitCode = MANUAL_APPROVAL_EXIT;
+    return;
+  }
+
   let confirmed: PayPalOrder;
   try {
-    confirmed = await confirmCardPayment(client, created.id);
+    confirmed = await confirmCardPayment(client, created.id, `hello-order:confirm:${created.id}`);
   } catch (error) {
     await recordFailure("confirm", created.id, error);
     if (!(error instanceof PayPalApiError)) {
@@ -79,7 +92,7 @@ async function createConfirmAndCapture(client: ReturnType<typeof createPayPalCli
 }
 
 async function captureExistingOrder(client: ReturnType<typeof createPayPalClient>, orderId: string) {
-  const order = await getOrder(client, orderId);
+  const order = await getOrder(client, orderId, `hello-order:get:${orderId}`);
   console.log(`Loaded order ${order.id} (${order.status}).`);
 
   if (order.status === "COMPLETED") {
@@ -98,7 +111,7 @@ async function captureExistingOrder(client: ReturnType<typeof createPayPalClient
 
 async function captureApprovedOrder(client: ReturnType<typeof createPayPalClient>, orderId: string) {
   try {
-    const captured = await captureOrder(client, orderId);
+    const captured = await captureOrder(client, orderId, `hello-order:capture:${orderId}`);
     await appendLedgerEvent({
       type: "paypal.order.captured",
       mandateId: null,
@@ -118,7 +131,7 @@ function orderPayload(order: PayPalOrder): Record<string, unknown> {
   return {
     orderId: order.id,
     status: order.status,
-    amount: { currencyCode: "USD", value: "5.00" },
+    amount: orderAmount(order),
     approvalUrl: approvalUrl(order) ?? null,
   };
 }
@@ -157,7 +170,10 @@ function printManualApproval(order: PayPalOrder, error?: unknown) {
   console.error(`1. Open this URL in a browser: ${url ?? "(no payer-action or approve link was returned)"}`);
   console.error("2. Sign in with a PayPal sandbox Personal account from https://developer.paypal.com/dashboard/accounts");
   console.error("   Use a Personal sandbox account, not the Business account that owns this REST app.");
-  console.error("3. Approve the $5.00 USD payment.");
+  const amount = orderAmount(order);
+  const amountLabel = amount ? `${amount.value} ${amount.currencyCode}` : "the payment";
+  console.error(`3. Approve the ${amountLabel} payment. The last button should say Pay Now.`);
+  console.error("   After approval the browser leaves PayPal and opens example.com. That means it worked.");
   console.error(`4. Capture it with: npm run hello-order -- --capture ${order.id}`);
   console.error("");
 }

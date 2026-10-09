@@ -5,6 +5,9 @@ import { paypalOrderSchema, type PayPalOrder } from "./schema";
 
 export const HELLO_ORDER_CENTS = 500;
 
+const CHECKOUT_RETURN_URL = "https://example.com/paypal/return";
+const CHECKOUT_CANCEL_URL = "https://example.com/paypal/cancel";
+
 /**
  * Published sandbox Visa from PayPal card testing. Not a live card.
  * https://developer.paypal.com/sandbox-testing/card-testing
@@ -58,6 +61,18 @@ export function helloOrderBody() {
 
   return {
     intent: "CAPTURE" as const,
+    // checkoutnow reloads the same page unless PayPal has a return URL.
+    payment_source: {
+      paypal: {
+        experience_context: {
+          brand_name: "Mandate",
+          shipping_preference: "NO_SHIPPING" as const,
+          user_action: "PAY_NOW" as const,
+          return_url: CHECKOUT_RETURN_URL,
+          cancel_url: CHECKOUT_CANCEL_URL,
+        },
+      },
+    },
     purchase_units: [
       {
         reference_id: "hello-order",
@@ -86,35 +101,42 @@ export function confirmCardBody() {
   };
 }
 
-export async function createOrder(client: PayPalClient, body: ReturnType<typeof helloOrderBody>) {
-  return parseOrder(await client.request({ method: "POST", path: "/v2/checkout/orders", body }));
+export async function createOrder(
+  client: PayPalClient,
+  body: ReturnType<typeof helloOrderBody>,
+  requestKey: string,
+) {
+  return parseOrder(await client.request({ method: "POST", path: "/v2/checkout/orders", body, requestKey }));
 }
 
-export async function confirmCardPayment(client: PayPalClient, orderId: string) {
+export async function confirmCardPayment(client: PayPalClient, orderId: string, requestKey: string) {
   return parseOrder(
     await client.request({
       method: "POST",
       path: `/v2/checkout/orders/${encodeURIComponent(orderId)}/confirm-payment-source`,
       body: confirmCardBody(),
+      requestKey,
     }),
   );
 }
 
-export async function captureOrder(client: PayPalClient, orderId: string) {
+export async function captureOrder(client: PayPalClient, orderId: string, requestKey: string) {
   return parseOrder(
     await client.request({
       method: "POST",
       path: `/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`,
       body: {},
+      requestKey,
     }),
   );
 }
 
-export async function getOrder(client: PayPalClient, orderId: string) {
+export async function getOrder(client: PayPalClient, orderId: string, requestKey: string) {
   return parseOrder(
     await client.request({
       method: "GET",
       path: `/v2/checkout/orders/${encodeURIComponent(orderId)}`,
+      requestKey,
     }),
   );
 }

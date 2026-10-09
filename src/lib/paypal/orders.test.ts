@@ -4,7 +4,7 @@ import { usdToCents } from "@/lib/money";
 
 import { paypalBaseUrl } from "./config";
 import { helloOrderBody } from "./orders";
-import { approvalUrl, paypalOrderSchema } from "./schema";
+import { approvalUrl, orderAmount, paypalOrderSchema } from "./schema";
 
 describe("hello order", () => {
   it("creates a $5.00 CAPTURE order whose line items match the total", () => {
@@ -18,6 +18,10 @@ describe("hello order", () => {
     expect(purchase?.amount.breakdown.item_total.value).toBe(purchase?.amount.value);
     expect(item?.unit_amount.value).toBe("5.00");
     expect(item?.quantity).toBe("1");
+    expect(body.payment_source.paypal.experience_context.shipping_preference).toBe("NO_SHIPPING");
+    expect(body.payment_source.paypal.experience_context.user_action).toBe("PAY_NOW");
+    expect(body.payment_source.paypal.experience_context.return_url).toMatch(/^https:\/\//);
+    expect(body.payment_source.paypal.experience_context.cancel_url).toMatch(/^https:\/\//);
     expect(usdToCents(purchase?.amount.value ?? "0.00")).toBe(
       usdToCents(item?.unit_amount.value ?? "0.00") * Number(item?.quantity),
     );
@@ -32,6 +36,24 @@ describe("paypal environment", () => {
   it("refuses a non-sandbox environment", () => {
     expect(() => paypalBaseUrl("live")).toThrow(/sandbox only/);
     expect(() => paypalBaseUrl(undefined)).toThrow(/sandbox only/);
+  });
+});
+
+describe("order amount", () => {
+  it("reads the amount from the first purchase unit", () => {
+    const order = paypalOrderSchema.parse({
+      id: "ORDER-ID",
+      status: "CREATED",
+      purchase_units: [{ amount: { currency_code: "USD", value: "5.00" } }],
+    });
+
+    expect(orderAmount(order)).toEqual({ currencyCode: "USD", value: "5.00" });
+  });
+
+  it("returns null when the order has no amount", () => {
+    const order = paypalOrderSchema.parse({ id: "ORDER-ID", status: "CREATED" });
+
+    expect(orderAmount(order)).toBeNull();
   });
 });
 

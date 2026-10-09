@@ -11,6 +11,11 @@ const captureSchema = z.looseObject({
   status: z.string().min(1),
 });
 
+const moneySchema = z.object({
+  currency_code: z.string().min(1),
+  value: z.string().min(1),
+});
+
 export const paypalOrderSchema = z.looseObject({
   id: z.string().min(1),
   status: z.string().min(1),
@@ -18,6 +23,7 @@ export const paypalOrderSchema = z.looseObject({
   purchase_units: z
     .array(
       z.looseObject({
+        amount: moneySchema.optional(),
         payments: z
           .looseObject({
             captures: z.array(captureSchema).optional(),
@@ -55,4 +61,13 @@ export function approvalUrl(order: PayPalOrder): string | undefined {
 
 export function captureId(order: PayPalOrder): string | undefined {
   return order.purchase_units?.[0]?.payments?.captures?.[0]?.id;
+}
+
+export function orderAmount(order: PayPalOrder): { currencyCode: string; value: string } | null {
+  const amount = order.purchase_units?.[0]?.amount;
+  if (!amount) {
+    return null;
+  }
+
+  return { currencyCode: amount.currency_code, value: amount.value };
 }

@@ -48,4 +48,23 @@ npm run db:migrate
 npm run hello-order
 ```
 
-`PAYPAL_ENV` must be `sandbox`. Ledger rows use a null `mandate_id` and one of: `paypal.order.created`, `paypal.order.confirmed`, `paypal.order.payer_action_required`, `paypal.order.captured`, `paypal.order.failed`.
+`PAYPAL_ENV` must be `sandbox`. Ledger rows use a null `mandate_id` and one of: `paypal.order.created`, `paypal.order.confirmed`, `paypal.order.payer_action_required`, `paypal.order.captured`, `paypal.order.failed`. The ledger amount is copied from the order's first purchase unit. It is not hardcoded.
+
+`PayPal-Request-Id` is a SHA-256 prefix of a caller-supplied key, not a random UUID. Orders v2 stores that id for about 6 hours ([idempotency](https://developer.paypal.com/api/rest/reference/idempotency)). The hello-order create key is `hello-order:create`, so a repeat run inside that window returns the same order. Access tokens are reused until 60 seconds before `expires_in`, then refreshed ([authentication](https://developer.paypal.com/api/rest/authentication)).
+
+## Saved PayPal wallet (not implemented)
+
+Checked 2026-10-09. This is the flow for "buyer consents once, later orders reuse the saved method."
+
+- Overview: https://developer.paypal.com/docs/checkout/save-payment-methods/
+- Save a PayPal wallet with no purchase, then charge later: https://developer.paypal.com/docs/checkout/save-payment-methods/purchase-later/payment-tokens-api/paypal/
+- Use a saved token on an Orders v2 create: https://developer.paypal.com/api/save-with-purchase/save-payment-methods
+- Save during a purchase with `payment_source.paypal.attributes.vault`: https://developer.paypal.com/checkout/save-customer-info
+
+The first step does not work without the buyer. `POST /v3/vault/setup-tokens` with `payment_source.paypal` returns `PAYER_ACTION_REQUIRED` and an `approve` link (`https://sandbox.paypal.com/agreements/approve?approval_session_id=...`). The buyer signs in and accepts a billing agreement. `usage_type` must be `MERCHANT` for merchant-initiated later charges. The setup token expires after about 3 days. After approval, `POST /v3/vault/payment-tokens` exchanges it for a payment token id.
+
+Later charges can omit the buyer. `POST /v2/checkout/orders` with `intent: "CAPTURE"` and `payment_source.paypal.vault_id` set to that token is documented to create an order on behalf of the payer. The sample response status is `COMPLETED`. The same page says the payer does not need to be present when charged.
+
+Sandbox setup is a dashboard toggle: the REST app's advanced options must have Vault selected. The guide also says saving a PayPal wallet can require a billing-agreement review ("contact your account manager"). A hackathon sandbox app may not be eligible until that is approved. That part was not tried against this app.
+
+Recommendation: use this for repeat sandbox charges after one human approval, and keep the policy engine in front of every charge. Do not use it for the first hello-order. Store only the payment token id and PayPal customer id after the buyer approves. Do not implement it until a sandbox app is confirmed to have Vault enabled.
