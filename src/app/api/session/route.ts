@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { clientIp, delayFailure, SESSION_LIMIT, SESSION_WINDOW_MS, takeRateLimit } from "@/lib/auth/rate-limit";
 import { DEMO_COOKIE, configuredPasscode, passcodeMatches, sessionToken } from "@/lib/auth/session";
 
 const bodySchema = z.strictObject({
@@ -8,23 +9,27 @@ const bodySchema = z.strictObject({
 });
 
 export async function POST(request: Request) {
+  if (!takeRateLimit(`session:${clientIp(request)}`, Date.now(), SESSION_LIMIT, SESSION_WINDOW_MS)) {
+    return reject(429, "Too many attempts. Try again later.");
+  }
+
   if (!configuredPasscode()) {
-    return Response.json({ error: "DEMO_PASSCODE is not set." }, { status: 500 });
+    return reject(500, "DEMO_PASSCODE is not set.");
   }
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return Response.json({ error: "Request body must be JSON." }, { status: 400 });
+    return reject(400, "Request body must be JSON.");
   }
 
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) {
-    return Response.json({ error: "Passcode is required." }, { status: 400 });
+    return reject(400, "Passcode is required.");
   }
   if (!(await passcodeMatches(parsed.data.passcode))) {
-    return Response.json({ error: "Passcode is incorrect." }, { status: 401 });
+    return reject(401, "Passcode is incorrect.");
   }
 
   const token = await sessionToken(configuredPasscode() ?? "");
@@ -37,4 +42,11 @@ export async function POST(request: Request) {
     maxAge: 60 * 60 * 24 * 7,
   });
   return response;
+}
+
+function reject(status: number, error: string): Promise<Response> {
+  return delayFailure().then(() => {
+    const headers = status === 429 ? { "retry-after": String(SESSION_WINDOW_MS / 1000) } : undefined;
+    return Response.json({ error }, { status, headers });
+  });
 }

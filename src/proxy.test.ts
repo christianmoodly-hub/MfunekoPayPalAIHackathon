@@ -21,6 +21,10 @@ describe("demo passcode proxy", () => {
 
     const enter = await proxy(new NextRequest("http://localhost:3000/enter"));
     expect(enter.headers.get("location")).toBeNull();
+
+    const health = await proxy(new NextRequest("http://localhost:3000/api/health"));
+    expect(health.headers.get("location")).toBeNull();
+    expect(health.status).not.toBe(401);
   });
 
   it("fails closed when DEMO_PASSCODE is unset", async () => {

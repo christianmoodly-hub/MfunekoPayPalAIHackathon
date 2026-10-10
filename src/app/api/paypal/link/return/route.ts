@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireSession } from "@/lib/auth/guard";
+import { appUrl } from "@/lib/env/app-url";
 import { appendLedgerEvent } from "@/lib/ledger";
 import { createPayPalClient } from "@/lib/paypal/client";
 import { readPayPalEnv } from "@/lib/paypal/config";
@@ -19,7 +20,7 @@ export async function GET(request: NextRequest) {
       mandateId: null,
       payload: { step: "return", message: "PayPal did not return a setup token." },
     }).catch(() => undefined);
-    return NextResponse.redirect(new URL("/wallet?linked=0", request.url));
+    return NextResponse.redirect(appUrl("/wallet?linked=0"));
   }
 
   try {
@@ -29,13 +30,13 @@ export async function GET(request: NextRequest) {
       appendLedger: appendLedgerEvent,
       save: insertPaymentMethod,
     });
-    return NextResponse.redirect(new URL("/wallet?linked=1", request.url));
+    return NextResponse.redirect(appUrl("/wallet?linked=1"));
   } catch (error) {
     await appendLedgerEvent({
       type: "paypal.vault.failed",
       mandateId: null,
       payload: vaultFailurePayload("return", error, setupTokenId),
     }).catch(() => undefined);
-    return NextResponse.redirect(new URL("/wallet?linked=0", request.url));
+    return NextResponse.redirect(appUrl("/wallet?linked=0"));
   }
 }

@@ -474,7 +474,8 @@ async function resolveDeps(overrides: Partial<ApprovalDeps>): Promise<ApprovalDe
   const { readChannel3Env } = await import("@/lib/channel3/env");
   const { appendLedgerEvent } = await import("@/lib/ledger");
   const client = createPayPalClient(readPayPalEnv());
-  const origin = process.env.APP_URL ?? "http://localhost:3000";
+  const { appOrigin } = await import("@/lib/env/app-url");
+  const origin = appOrigin();
   const defaults: ApprovalDeps = {
     now: new Date(),
     loadApproval: loadApprovalRecord,

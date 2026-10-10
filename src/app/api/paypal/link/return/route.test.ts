@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { testSessionCookie } from "@/lib/auth/session";
 
@@ -41,6 +41,9 @@ vi.mock("@/lib/paypal/payment-methods", () => ({
 import { GET } from "./route";
 
 describe("GET /api/paypal/link/return", () => {
+  beforeEach(() => {
+    process.env.APP_URL = "http://localhost:3000";
+  });
   it("stores the payment token and redirects without putting it in the URL", async () => {
     state.events = [];
     state.saved = [];

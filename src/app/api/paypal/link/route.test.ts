@@ -1,11 +1,14 @@
 import { NextRequest } from "next/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { testSessionCookie } from "@/lib/auth/session";
 
 const state = vi.hoisted(() => ({
   events: [] as { type: string; payload: Record<string, unknown> }[],
   response: {} as unknown,
+  body: null as {
+    payment_source?: { paypal?: { experience_context?: { return_url?: string; cancel_url?: string } } };
+  } | null,
 }));
 
 vi.mock("@/db/client", () => ({
@@ -26,7 +29,8 @@ vi.mock("@/lib/paypal/config", () => ({
 
 vi.mock("@/lib/paypal/client", () => ({
   createPayPalClient: () => ({
-    request: async () => {
+    request: async (input: { body?: typeof state.body }) => {
+      state.body = input.body ?? null;
       if (state.response instanceof Error) {
         throw state.response;
       }
@@ -51,6 +55,9 @@ import { PayPalApiError } from "@/lib/paypal/client";
 import { POST } from "./route";
 
 describe("POST /api/paypal/link", () => {
+  beforeEach(() => {
+    process.env.APP_URL = "https://mandate.example";
+  });
   it("returns the approval URL and omits the setup token id from the ledger", async () => {
     state.events = [];
     state.response = {
@@ -72,6 +79,10 @@ describe("POST /api/paypal/link", () => {
     });
     expect(state.events.map((event) => event.type)).toEqual(["paypal.vault.setup_created"]);
     expect(JSON.stringify(state.events)).not.toContain("SETUP123");
+    expect(state.body?.payment_source?.paypal?.experience_context?.return_url).toBe(
+      "https://mandate.example/api/paypal/link/return",
+    );
+    expect(state.body?.payment_source?.paypal?.experience_context?.cancel_url).toBe("https://mandate.example/wallet?linked=0");
   });
 
   it("records a PayPal rejection without a vault id", async () => {

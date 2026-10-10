@@ -4,7 +4,7 @@ import { sessionMatches } from "@/lib/auth/session";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (pathname === "/enter" || pathname === "/api/session") {
+  if (pathname === "/enter" || pathname === "/api/session" || pathname === "/api/health") {
     return NextResponse.next();
   }
 

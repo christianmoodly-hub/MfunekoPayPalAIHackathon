@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth/guard";
 import { appendLedgerEvent } from "@/lib/ledger";
 import { PayPalApiError, createPayPalClient } from "@/lib/paypal/client";
 import { readPayPalEnv } from "@/lib/paypal/config";
+import { appOrigin } from "@/lib/env/app-url";
 import { beginVaultLink, vaultFailurePayload } from "@/lib/paypal/link";
 
 export async function POST(request: NextRequest) {
@@ -11,8 +12,8 @@ export async function POST(request: NextRequest) {
   if (denied) {
     return denied;
   }
-  const origin = new URL(request.url).origin;
   try {
+    const origin = appOrigin();
     const result = await beginVaultLink({
       client: createPayPalClient(readPayPalEnv()),
       returnUrl: `${origin}/api/paypal/link/return`,
@@ -35,7 +36,7 @@ function publicError(error: unknown): string {
   if (error instanceof PayPalApiError) {
     return error.message;
   }
-  if (error instanceof Error && error.message.endsWith("are required.")) {
+  if (error instanceof Error && (error.message.endsWith("are required.") || error.message.startsWith("APP_URL"))) {
     return error.message;
   }
   return "Could not start PayPal wallet linking.";
@@ -45,7 +46,7 @@ function errorStatus(error: unknown): number {
   if (error instanceof PayPalApiError) {
     return error.status >= 400 && error.status < 500 ? 400 : 502;
   }
-  if (error instanceof Error && error.message.endsWith("are required.")) {
+  if (error instanceof Error && (error.message.endsWith("are required.") || error.message.startsWith("APP_URL"))) {
     return 500;
   }
   return 502;

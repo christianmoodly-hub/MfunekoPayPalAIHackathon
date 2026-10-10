@@ -17,7 +17,7 @@ Put values in `.env` before `db:migrate`. `.env` is gitignored. `npm install` po
 
 ## Environment variables
 
-`DATABASE_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `CHANNEL3_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_ENV`, `DEMO_PASSCODE`
+`DATABASE_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `CHANNEL3_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_ENV`, `DEMO_PASSCODE`, `APP_URL`
 
 `PAYPAL_ENV` must be `sandbox`.
 

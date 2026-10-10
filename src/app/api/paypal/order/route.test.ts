@@ -46,6 +46,7 @@ describe("PayPal order return and cancel", () => {
     state.captured = 0;
     state.cancelled = [];
     process.env.DEMO_PASSCODE = "demo-gate";
+    process.env.APP_URL = "http://localhost:3000";
   });
 
   it("requires the demo session", async () => {

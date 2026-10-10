@@ -8,6 +8,7 @@ import { approvalUrl, orderAmount, paypalOrderSchema } from "./schema";
 
 describe("hello order", () => {
   it("creates a $5.00 CAPTURE order whose line items match the total", () => {
+    process.env.APP_URL = "https://mandate.example";
     const body = helloOrderBody();
     const purchase = body.purchase_units[0];
     const item = purchase?.items[0];
@@ -20,8 +21,8 @@ describe("hello order", () => {
     expect(item?.quantity).toBe("1");
     expect(body.payment_source.paypal.experience_context.shipping_preference).toBe("NO_SHIPPING");
     expect(body.payment_source.paypal.experience_context.user_action).toBe("PAY_NOW");
-    expect(body.payment_source.paypal.experience_context.return_url).toMatch(/^https:\/\//);
-    expect(body.payment_source.paypal.experience_context.cancel_url).toMatch(/^https:\/\//);
+    expect(body.payment_source.paypal.experience_context.return_url).toBe("https://mandate.example/api/paypal/order/return");
+    expect(body.payment_source.paypal.experience_context.cancel_url).toBe("https://mandate.example/api/paypal/order/cancel");
     expect(usdToCents(purchase?.amount.value ?? "0.00")).toBe(
       usdToCents(item?.unit_amount.value ?? "0.00") * Number(item?.quantity),
     );

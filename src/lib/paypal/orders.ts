@@ -1,12 +1,10 @@
 import { centsToUsd, usdToCents } from "@/lib/money";
+import { appOrigin } from "@/lib/env/app-url";
 
 import type { PayPalClient } from "./client";
 import { paypalOrderSchema, type PayPalOrder } from "./schema";
 
 export const HELLO_ORDER_CENTS = 500;
-
-const CHECKOUT_RETURN_URL = "https://example.com/paypal/return";
-const CHECKOUT_CANCEL_URL = "https://example.com/paypal/cancel";
 
 /**
  * Published sandbox Visa from PayPal card testing. Not a live card.
@@ -68,8 +66,8 @@ export function helloOrderBody() {
           brand_name: "Mandate",
           shipping_preference: "NO_SHIPPING" as const,
           user_action: "PAY_NOW" as const,
-          return_url: CHECKOUT_RETURN_URL,
-          cancel_url: CHECKOUT_CANCEL_URL,
+          return_url: `${appOrigin()}/api/paypal/order/return`,
+          cancel_url: `${appOrigin()}/api/paypal/order/cancel`,
         },
       },
     },
