@@ -128,3 +128,15 @@
     @apply font-sans;
   }
 }
+
+.ledger-grid .ag-root-wrapper {
+  border: 0;
+}
+
+.ledger-grid .ag-row {
+  cursor: pointer;
+}
+
+.ledger-grid .ag-row.ledger-row-selected {
+  background-color: var(--accent);
+}

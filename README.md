@@ -56,8 +56,8 @@ npm run lint
 Database integration tests use `DATABASE_URL_TEST` only and are skipped when it is unset. To run them against a disposable local Docker Postgres database, start one and point both migrations and tests at that local URL:
 
 ```powershell
-docker run --name mandate-test-db -e POSTGRES_PASSWORD=local-test -e POSTGRES_DB=mandate_test -p 5433:5432 -d postgres:16
-$env:DATABASE_URL_TEST = "postgres://postgres:local-test@localhost:5433/mandate_test"
+docker run --name mandate-test-db -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=mandate_test -p 5433:5432 -d postgres:16
+$env:DATABASE_URL_TEST = "postgres://postgres@localhost:5433/mandate_test"
 $env:DATABASE_URL = $env:DATABASE_URL_TEST
 npm run db:migrate
 npm test
