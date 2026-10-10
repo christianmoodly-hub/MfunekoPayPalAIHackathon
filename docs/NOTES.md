@@ -246,7 +246,9 @@ What the docs show for the fields this app needs:
 
 `src/lib/shopping` therefore sets `freeReturns` and `deliveryDate` to null, meaning unknown. A required rule with unknown catalog data escalates. Merchant allow and block lists compare normalized domains, and a listed domain also covers its subdomains. Prior spend is the sum of `paypal.order.captured` ledger amounts for the mandate. Gemini ranking returns only `productId`, `quantity`, and `reasoning`.
 
-Product detail is `GET https://api.trychannel3.com/v1/products/{product_id}` with `x-api-key` and query `currency`, `country`, and `language` (the client asks for USD, US, and en). Prices are still on `offers`. `refetchPrice` in `src/lib/channel3/price.ts` reads the lowest in-stock USD offer. Checkout does not call it yet.
+Product detail is `GET https://api.trychannel3.com/v1/products/{product_id}` with `x-api-key` and query `currency`, `country`, and `language` (the client asks for USD, US, and en). Prices are still on `offers`. `refetchPrice` in `src/lib/channel3/price.ts` reads the lowest in-stock USD offer. `guardedCheckout` copies that price onto each line as `checkoutUnitPriceCents` before the policy engine runs.
+
+A checkout then reserves that payable total inside a Postgres transaction locked with `pg_advisory_xact_lock(hashtext(mandate_id))`. The hold is a `checkout.reserved` ledger row. Open spend is captured `paypal.order.captured` amounts for that mandate, plus reservations that have not been released or captured. The captured row includes the mandate id and `amount.currencyCode` / `amount.value`, which is what `spentCentsForMandate` sums. If PayPal's order amount or capture amount is not the approved cent total, checkout throws and writes `checkout.released` plus `paypal.order.failed`.
 
 ```bash
 npm run shop -- <mandateId>

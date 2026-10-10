@@ -6,7 +6,7 @@ import { channel3ProductSchema, type Channel3Offer } from "./schema";
 // Product lookup: GET /v1/products/{product_id}
 // https://docs.trychannel3.com/api-reference/v1/product-detail
 // https://docs.trychannel3.com/guides/product-detail
-// Not used by checkout yet. Call this to re-read the price before capture.
+// Checkout calls this and passes the result to policy as checkoutUnitPriceCents.
 const PRODUCT_DETAIL_URL = "https://api.trychannel3.com/v1/products";
 
 export async function refetchPrice(

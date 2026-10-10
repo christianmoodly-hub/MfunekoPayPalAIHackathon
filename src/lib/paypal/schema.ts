@@ -6,14 +6,15 @@ export const paypalLinkSchema = z.object({
   method: z.string().optional(),
 });
 
-const captureSchema = z.looseObject({
-  id: z.string().min(1),
-  status: z.string().min(1),
-});
-
 const moneySchema = z.object({
   currency_code: z.string().min(1),
   value: z.string().min(1),
+});
+
+const captureSchema = z.looseObject({
+  id: z.string().min(1),
+  status: z.string().min(1),
+  amount: moneySchema.optional(),
 });
 
 export const paypalOrderSchema = z.looseObject({
