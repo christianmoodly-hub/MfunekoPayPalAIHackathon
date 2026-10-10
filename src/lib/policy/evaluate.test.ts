@@ -222,6 +222,25 @@ describe("policy engine", () => {
     expect(decision.reasons.some((reason) => reason.includes("escalate"))).toBe(false);
   });
 
+  it("allows any category when allowedCategories is null", () => {
+    const decision = decide(
+      { lineItems: [item({ category: "Electronics" })] },
+      { mandate: { allowedCategories: null } },
+    );
+
+    expect(decision.verdict).toBe("APPROVE");
+  });
+
+  it("blocks every category when the allow list is empty", () => {
+    const decision = decide(
+      { lineItems: [item({ category: "office" })] },
+      { mandate: { allowedCategories: [] } },
+    );
+
+    expect(decision.verdict).toBe("BLOCK");
+    expect(decision.reasons).toContain('Item 1 category "office" is not allowed.');
+  });
+
   it("blocks a category that is not on the allow list", () => {
     const decision = decide({ lineItems: [item({ category: "Electronics" })] });
 

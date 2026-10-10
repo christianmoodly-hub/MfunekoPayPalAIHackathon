@@ -1,0 +1,32 @@
+import { z } from "zod";
+
+import { mandateSchema, mandateStatusSchema } from "@/lib/policy/schema";
+
+const timestamp = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
+
+export const draftMandateSchema = mandateSchema.omit({
+  id: true,
+  description: true,
+  status: true,
+  expiresAt: true,
+});
+
+export const mandateEditsSchema = draftMandateSchema.extend({
+  description: z.string().trim().min(1),
+  expiresAt: timestamp,
+});
+
+export const parseRequestSchema = z.object({
+  text: z.string(),
+});
+
+export { mandateSchema, mandateStatusSchema };
+
+export type DraftMandate = z.infer<typeof draftMandateSchema>;
+export type MandateEdits = z.infer<typeof mandateEditsSchema>;
+
+export function draftMandateJsonSchema(): Record<string, unknown> {
+  const schema = draftMandateSchema.toJSONSchema() as Record<string, unknown>;
+  delete schema.$schema;
+  return schema;
+}

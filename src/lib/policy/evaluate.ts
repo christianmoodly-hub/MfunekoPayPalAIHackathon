@@ -102,11 +102,11 @@ function decide(
 function itemReasons(mandate: Mandate, item: LineItem, index: number): string[] {
   const reasons: string[] = [];
   const label = `Item ${index + 1}`;
-  const category = normalize(item.category);
-  const allowedCategories = new Set(mandate.allowedCategories.map(normalize));
-
-  if (!allowedCategories.has(category)) {
-    reasons.push(`${label} category "${item.category}" is not allowed.`);
+  if (mandate.allowedCategories !== null) {
+    const allowedCategories = new Set(mandate.allowedCategories.map(normalize));
+    if (!allowedCategories.has(normalize(item.category))) {
+      reasons.push(`${label} category "${item.category}" is not allowed.`);
+    }
   }
 
   const merchant = normalize(item.merchant);

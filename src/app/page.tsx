@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
 
 export default function Home() {
@@ -8,7 +10,13 @@ export default function Home() {
       <p className="max-w-xl text-base leading-7 text-muted-foreground">
         Sandbox only. The model can propose a purchase. Deterministic code decides whether money moves.
       </p>
-      <div>
+      <div className="flex gap-3">
+        <Button
+          nativeButton={false}
+          render={<Link href="/mandates" />}
+        >
+          Parse a mandate
+        </Button>
         <Button variant="outline" disabled>
           Checkout is not wired up yet
         </Button>

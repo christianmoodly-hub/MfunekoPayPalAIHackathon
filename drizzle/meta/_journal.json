@@ -8,6 +8,13 @@
       "when": 1791553986803,
       "tag": "0000_strong_talon",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791558195091,
+      "tag": "0001_mandates",
+      "breakpoints": true
     }
   ]
 }

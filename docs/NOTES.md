@@ -68,3 +68,25 @@ Later charges can omit the buyer. `POST /v2/checkout/orders` with `intent: "CAPT
 Sandbox setup is a dashboard toggle: the REST app's advanced options must have Vault selected. The guide also says saving a PayPal wallet can require a billing-agreement review ("contact your account manager"). A hackathon sandbox app may not be eligible until that is approved. That part was not tried against this app.
 
 Recommendation: use this for repeat sandbox charges after one human approval, and keep the policy engine in front of every charge. Do not use it for the first hello-order. Store only the payment token id and PayPal customer id after the buyer approves. Do not implement it until a sandbox app is confirmed to have Vault enabled.
+
+## Gemini structured output
+
+Checked 2026-10-09.
+
+- Structured output (JSON schema): https://ai.google.dev/gemini-api/docs/structured-output
+- Model list: https://ai.google.dev/gemini-api/docs/models
+- Gemini 3.8 Flash: https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash
+- API key auth: https://ai.google.dev/gemini-api/docs/api-key
+
+The structured-output page uses the Interactions API. The JavaScript example calls `client.interactions.create` from `@google/genai` with `response_format: { type: "text", mime_type: "application/json", schema }`. The sample model is `gemini-3.8-flash`. `responseSchema` and `response_mime_type` are deprecated in favor of `response_format`.
+
+The models page (updated 2026-10-06) lists current text models including `gemini-3.8-flash` (stable Flash), `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview`, and `gemini-3-flash-preview`. New projects should use a current model. `GEMINI_MODEL` in `.env.example` is `gemini-3.8-flash`. The code does not hardcode a model name.
+
+The API key is read from `GEMINI_API_KEY` at request time. It is not written to the ledger, logs, or the database. Error text that looks like an API key (`AIza…`), a `key=` query value, or a `postgres://` URL is redacted before it is stored or returned.
+
+```bash
+npm run db:migrate
+npm run parse-mandate -- "buy office supplies under 50 dollars"
+```
+
+The script needs `DATABASE_URL`, `GEMINI_API_KEY`, and `GEMINI_MODEL`. It saves a draft mandate and writes `mandate.parse_requested` and `mandate.parsed`. A failed parse writes `mandate.parse_failed`. Confirming a draft in the app writes `mandate.confirmed` and sets status to `active`.
