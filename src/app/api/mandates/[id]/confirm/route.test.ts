@@ -29,6 +29,7 @@ const validEdits = {
   requireFreeReturns: true,
   deliverBy: "2026-10-20",
   escalateAboveCents: 3000,
+  searchQuery: "office paper",
 };
 
 async function confirm(body: unknown) {
@@ -57,6 +58,9 @@ describe("POST /api/mandates/[id]/confirm", () => {
     await expectRejected({ ...validEdits, status: "exhausted" });
     await expectRejected({ ...validEdits, status: "active" });
     await expectRejected({ ...validEdits, expiresAt: "2099-01-01T00:00:00.000Z" });
+    await expectRejected({ ...validEdits, needsInput: ["budget"] });
+    await expectRejected({ ...validEdits, searchQuery: "  " });
+    await expectRejected({ ...validEdits, maxTotalCents: 0 });
   });
 
   it("rejects invalid caps", async () => {

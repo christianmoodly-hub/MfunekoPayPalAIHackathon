@@ -34,8 +34,10 @@ Put values in `.env` before `db:migrate`. `.env` is gitignored. `npm install` po
 Confirm a mandate in the app, then:
 
 ```bash
-npm run shop -- <mandateId> "office paper"
+npm run shop -- <mandateId>
 ```
+
+That uses the mandate's search query. Pass a query to override it: `npm run shop -- <mandateId> "office paper"`.
 
 ## Checks
 

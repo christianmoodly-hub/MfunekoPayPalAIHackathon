@@ -15,6 +15,8 @@ const validDraft = {
   requireFreeReturns: true,
   deliverBy: "2026-10-20",
   escalateAboveCents: 3000,
+  searchQuery: "office paper",
+  needsInput: [],
 };
 
 describe("createMandateFromText", () => {

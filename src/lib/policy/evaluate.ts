@@ -1,4 +1,5 @@
-import { normalizeMerchant } from "./merchants";
+import { categoryMatches } from "./categories";
+import { merchantCoveredBy } from "./merchants";
 import {
   mandateSchema,
   proposedPurchaseSchema,
@@ -42,28 +43,31 @@ function decide(
   spend: SpendHistory,
   checkedAtMs: number,
 ): PolicyDecision {
-  const reasons: string[] = [];
+  const blockReasons: string[] = [];
+  const escalateReasons: string[] = [];
 
   if (mandate.status !== "active") {
-    reasons.push(`Mandate status is ${mandate.status}.`);
+    blockReasons.push(`Mandate status is ${mandate.status}.`);
   } else if (checkedAtMs >= Date.parse(mandate.expiresAt)) {
-    reasons.push(`Mandate expired at ${mandate.expiresAt}.`);
+    blockReasons.push(`Mandate expired at ${mandate.expiresAt}.`);
   }
 
   if (purchase.lineItems.length === 0) {
-    reasons.push("Cart has no line items.");
+    blockReasons.push("Cart has no line items.");
   }
 
   const proposedTotal = totalCents(purchase.lineItems, "proposed");
   const payableTotal = totalCents(purchase.lineItems, "payable");
   if (proposedTotal === null || payableTotal === null) {
-    reasons.push("A line total is not a safe integer number of cents.");
+    blockReasons.push("A line total is not a safe integer number of cents.");
   } else if (purchase.statedTotalCents !== proposedTotal) {
-    reasons.push("Stated total does not match the line items.");
+    blockReasons.push("Stated total does not match the line items.");
   }
 
   for (const [index, item] of purchase.lineItems.entries()) {
-    reasons.push(...itemReasons(mandate, item, index));
+    const itemResult = itemReasons(mandate, item, index);
+    blockReasons.push(...itemResult.block);
+    escalateReasons.push(...itemResult.escalate);
   }
 
   if (proposedTotal !== null && payableTotal !== null) {
@@ -71,79 +75,92 @@ function decide(
     for (const [index, item] of purchase.lineItems.entries()) {
       const unit = payableUnitCents(item);
       if (unit > mandate.maxPerItemCents) {
-        reasons.push(
+        blockReasons.push(
           `Item ${index + 1} price of ${unit} cents exceeds the per-item cap of ${mandate.maxPerItemCents} cents.`,
         );
       }
     }
 
     if (payable > MAX_SAFE_CENTS - spend.spentCents) {
-      reasons.push("Cumulative spend is not a safe integer number of cents.");
+      blockReasons.push("Cumulative spend is not a safe integer number of cents.");
     } else if (spend.spentCents + payable > mandate.maxTotalCents) {
-      reasons.push(
+      blockReasons.push(
         `Cart total of ${payable} cents plus prior spend of ${spend.spentCents} cents exceeds the mandate cap of ${mandate.maxTotalCents} cents.`,
       );
-    } else if (reasons.length === 0 && payable > mandate.escalateAboveCents) {
-      return {
-        verdict: "ESCALATE",
-        reasons: [
-          `Cart total of ${payable} cents exceeds the escalate threshold of ${mandate.escalateAboveCents} cents.`,
-        ],
-      };
     }
   }
 
-  if (reasons.length > 0) {
-    return { verdict: "BLOCK", reasons };
+  if (blockReasons.length > 0) {
+    return { verdict: "BLOCK", reasons: [...blockReasons, ...escalateReasons] };
+  }
+
+  if (proposedTotal !== null && payableTotal !== null && payableTotal > mandate.escalateAboveCents) {
+    escalateReasons.push(
+      `Cart total of ${payableTotal} cents exceeds the escalate threshold of ${mandate.escalateAboveCents} cents.`,
+    );
+  }
+
+  if (escalateReasons.length > 0) {
+    return { verdict: "ESCALATE", reasons: escalateReasons };
   }
 
   return { verdict: "APPROVE", reasons: ["Within the mandate limits."] };
 }
 
-function itemReasons(mandate: Mandate, item: LineItem, index: number): string[] {
-  const reasons: string[] = [];
+function itemReasons(mandate: Mandate, item: LineItem, index: number): { block: string[]; escalate: string[] } {
+  const block: string[] = [];
+  const escalate: string[] = [];
   const label = `Item ${index + 1}`;
   if (mandate.allowedCategories !== null) {
-    const allowedCategories = new Set(mandate.allowedCategories.map(normalize));
-    if (!allowedCategories.has(normalize(item.category))) {
-      reasons.push(`${label} category "${item.category}" is not allowed.`);
+    if (item.category === null) {
+      escalate.push(unknownCatalogReason(label, "category"));
+    } else if (!categoryMatches(mandate.allowedCategories, item.category)) {
+      block.push(`${label} category "${item.category}" is not allowed.`);
     }
   }
 
-  const merchant = normalizeMerchant(item.merchant);
-  const blocked = new Set(mandate.blockedMerchants.map(normalizeMerchant));
-  if (blocked.has(merchant)) {
-    reasons.push(`${label} merchant "${item.merchant}" is blocked.`);
+  if (mandate.blockedMerchants.some((rule) => merchantCoveredBy(rule, item.merchant))) {
+    block.push(`${label} merchant "${item.merchant}" is blocked.`);
   }
 
   if (mandate.allowedMerchants && mandate.allowedMerchants.length > 0) {
-    const allowed = new Set(mandate.allowedMerchants.map(normalizeMerchant));
-    if (!allowed.has(merchant)) {
-      reasons.push(`${label} merchant "${item.merchant}" is not in the allowed merchant list.`);
+    const allowed = mandate.allowedMerchants.some((rule) => merchantCoveredBy(rule, item.merchant));
+    if (!allowed) {
+      block.push(`${label} merchant "${item.merchant}" is not in the allowed merchant list.`);
     }
   }
 
-  if (mandate.requireFreeReturns && !item.freeReturns) {
-    reasons.push(`${label} does not include free returns.`);
+  if (mandate.requireFreeReturns) {
+    if (item.freeReturns === null) {
+      escalate.push(unknownCatalogReason(label, "free returns"));
+    } else if (!item.freeReturns) {
+      block.push(`${label} does not include free returns.`);
+    }
   }
 
   if (mandate.deliverBy) {
     if (!isCalendarDate(mandate.deliverBy)) {
-      reasons.push("Mandate deliver-by date is invalid.");
-    } else if (!item.deliveryDate || !isCalendarDate(item.deliveryDate)) {
-      reasons.push(`${label} is missing a delivery date.`);
+      block.push("Mandate deliver-by date is invalid.");
+    } else if (item.deliveryDate === null) {
+      escalate.push(unknownCatalogReason(label, "delivery date"));
+    } else if (!isCalendarDate(item.deliveryDate)) {
+      block.push(`${label} delivery date "${item.deliveryDate}" is not a calendar date.`);
     } else if (item.deliveryDate > mandate.deliverBy) {
-      reasons.push(`${label} delivery date ${item.deliveryDate} is after ${mandate.deliverBy}.`);
+      block.push(`${label} delivery date ${item.deliveryDate} is after ${mandate.deliverBy}.`);
     }
   }
 
   if (item.checkoutUnitPriceCents !== undefined && item.checkoutUnitPriceCents !== item.unitPriceCents) {
-    reasons.push(
+    block.push(
       `${label} checkout price changed from ${item.unitPriceCents} cents to ${item.checkoutUnitPriceCents} cents.`,
     );
   }
 
-  return reasons;
+  return { block, escalate };
+}
+
+function unknownCatalogReason(label: string, rule: string): string {
+  return `${label}: Cannot verify ${rule} from catalog data`;
 }
 
 function payableUnitCents(item: LineItem): number {
@@ -161,10 +178,6 @@ function totalCents(items: LineItem[], basis: "proposed" | "payable"): number | 
     total += line;
   }
   return total;
-}
-
-function normalize(value: string): string {
-  return value.trim().toLowerCase();
 }
 
 function isCalendarDate(value: string): boolean {

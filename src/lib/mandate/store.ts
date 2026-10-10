@@ -5,6 +5,7 @@ import { mandates } from "@/db/schema";
 import { mandateSchema, type Mandate } from "@/lib/policy/schema";
 
 import { mandateEditsSchema } from "./schema";
+import { applyMandateConfirmation } from "./defaults";
 
 export class MandateStoreError extends Error {
   readonly statusCode: number;
@@ -35,13 +36,7 @@ export async function confirmMandate(id: string, edits: unknown): Promise<Mandat
     throw new MandateStoreError("Only a draft mandate can be confirmed.", 409);
   }
 
-  const next = mandateSchema.parse({
-    ...existing,
-    ...parsedEdits.data,
-    id,
-    status: "active",
-    expiresAt: existing.expiresAt,
-  });
+  const next = applyMandateConfirmation(existing, parsedEdits.data);
   const db = getDb();
   const [row] = await db
     .update(mandates)
@@ -76,6 +71,8 @@ function toRow(mandate: Mandate) {
     escalateAboveCents: mandate.escalateAboveCents,
     expiresAt: new Date(mandate.expiresAt),
     status: mandate.status,
+    searchQuery: mandate.searchQuery,
+    needsInput: mandate.needsInput,
   };
 }
 
@@ -93,5 +90,7 @@ function fromRow(row: typeof mandates.$inferSelect): Mandate {
     escalateAboveCents: row.escalateAboveCents,
     expiresAt: row.expiresAt.toISOString(),
     status: row.status,
+    searchQuery: row.searchQuery,
+    needsInput: row.needsInput,
   });
 }

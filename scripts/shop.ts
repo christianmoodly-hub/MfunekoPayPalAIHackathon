@@ -5,12 +5,12 @@ import { readGeminiEnv } from "../src/lib/gemini/env";
 import { redactSecrets } from "../src/lib/gemini/redact";
 import { getMandate } from "../src/lib/mandate/store";
 import { runShoppingSearch } from "../src/lib/shopping/run";
+import { shopQuery } from "../src/lib/shopping/query";
 
 async function main() {
   const [mandateId, ...queryParts] = process.argv.slice(2);
-  const query = queryParts.join(" ").trim();
-  if (!mandateId || !query) {
-    throw new Error('Usage: npm run shop -- <mandateId> "<query>"');
+  if (!mandateId) {
+    throw new Error('Usage: npm run shop -- <mandateId> ["<query>"]');
   }
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is not set.");
@@ -21,6 +21,10 @@ async function main() {
   const mandate = await getMandate(mandateId);
   if (!mandate) {
     throw new Error("Mandate was not found.");
+  }
+  const query = shopQuery(mandate.searchQuery, queryParts.join(" "));
+  if (!query) {
+    throw new Error('The mandate has no search query. Pass one: npm run shop -- <mandateId> "<query>"');
   }
 
   const result = await runShoppingSearch(mandate, query, {

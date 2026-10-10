@@ -17,6 +17,8 @@ type Mandate = {
   escalateAboveCents: number;
   expiresAt: string;
   status: string;
+  searchQuery: string;
+  needsInput: string[];
 };
 
 type DraftFields = {
@@ -31,6 +33,8 @@ type DraftFields = {
   deliverBy: string;
   escalateAboveCents: string;
   expiresAt: string;
+  searchQuery: string;
+  needsInput: string[];
 };
 
 const emptyFields: DraftFields = {
@@ -45,6 +49,8 @@ const emptyFields: DraftFields = {
   deliverBy: "",
   escalateAboveCents: "",
   expiresAt: "",
+  searchQuery: "",
+  needsInput: [],
 };
 
 export function MandateForm() {
@@ -144,6 +150,20 @@ export function MandateForm() {
               onChange={(event) => update(setFields, "description", event.target.value)}
             />
           </Field>
+          <Field label="What to shop for">
+            <input
+              className="rounded-lg border border-border bg-background px-3 py-2"
+              value={fields.searchQuery}
+              onChange={(event) => update(setFields, "searchQuery", event.target.value)}
+            />
+          </Field>
+          {status !== "active" && (visibleNeeds(fields).length > 0 || !canConfirm(fields)) ? (
+            <div className="rounded-lg border border-destructive bg-destructive/10 px-3 py-3 text-sm" role="status">
+              <p className="font-medium">This mandate still needs input before it can be confirmed.</p>
+              {visibleNeeds(fields).length > 0 ? <p>Missing: {visibleNeeds(fields).join(", ")}.</p> : null}
+              {canConfirm(fields) ? null : <p>Enter a max total above 0 and a search query to confirm.</p>}
+            </div>
+          ) : null}
           <Field label="Max total (USD cents)">
             <input
               className="rounded-lg border border-border bg-background px-3 py-2"
@@ -185,14 +205,14 @@ export function MandateForm() {
               />
             </Field>
           )}
-          <Field label="Blocked merchants (comma-separated)">
+          <Field label="Blocked merchant domains (amazon.com)">
             <input
               className="rounded-lg border border-border bg-background px-3 py-2"
               value={fields.blockedMerchants}
               onChange={(event) => update(setFields, "blockedMerchants", event.target.value)}
             />
           </Field>
-          <Field label="Allowed merchants (comma-separated, empty means any)">
+          <Field label="Allowed merchant domains (amazon.com, empty means any)">
             <input
               className="rounded-lg border border-border bg-background px-3 py-2"
               value={fields.allowedMerchants}
@@ -218,7 +238,7 @@ export function MandateForm() {
             Expires at {fields.expiresAt}. Confirm cannot change the expiry.
           </p>
           <div>
-            <Button type="submit" disabled={pending !== null || status === "active"}>
+            <Button type="submit" disabled={pending !== null || status === "active" || !canConfirm(fields)}>
               {pending === "confirm" ? "Confirming…" : status === "active" ? "Confirmed" : "Confirm"}
             </Button>
           </div>
@@ -258,6 +278,8 @@ function fieldsFromMandate(mandate: Mandate): DraftFields {
     deliverBy: mandate.deliverBy ?? "",
     escalateAboveCents: String(mandate.escalateAboveCents),
     expiresAt: mandate.expiresAt,
+    searchQuery: mandate.searchQuery,
+    needsInput: mandate.needsInput,
   };
 }
 
@@ -272,6 +294,7 @@ function editsFromFields(fields: DraftFields) {
     requireFreeReturns: fields.requireFreeReturns,
     deliverBy: fields.deliverBy.trim() === "" ? null : fields.deliverBy.trim(),
     escalateAboveCents: Number(fields.escalateAboveCents),
+    searchQuery: fields.searchQuery.trim(),
   };
 }
 
@@ -280,4 +303,15 @@ function splitList(value: string): string[] {
     .split(",")
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
+}
+
+function canConfirm(fields: DraftFields): boolean {
+  const maxTotal = Number(fields.maxTotalCents);
+  return Number.isInteger(maxTotal) && maxTotal > 0 && fields.searchQuery.trim().length > 0;
+}
+
+function visibleNeeds(fields: DraftFields): string[] {
+  const maxTotal = Number(fields.maxTotalCents);
+  const budgetFilled = Number.isInteger(maxTotal) && maxTotal > 0;
+  return fields.needsInput.filter((need) => need !== "budget" || !budgetFilled);
 }

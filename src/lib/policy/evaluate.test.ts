@@ -17,6 +17,8 @@ function mandate(overrides: Partial<Mandate> = {}): Mandate {
     deliverBy: "2026-10-20",
     escalateAboveCents: 3_000,
     expiresAt: "2026-11-01T00:00:00.000Z",
+    searchQuery: "office supplies",
+    needsInput: [],
     status: "active",
     ...overrides,
   };
@@ -248,10 +250,19 @@ describe("policy engine", () => {
     expect(decision.reasons).toContain('Item 1 category "Electronics" is not allowed.');
   });
 
-  it("matches categories without case sensitivity", () => {
-    const decision = decide({ lineItems: [item({ category: "Office" })] });
+  it("matches a category path segment without case sensitivity", () => {
+    const decision = decide({
+      lineItems: [item({ category: "home/Office/paper" })],
+    });
 
     expect(decision.verdict).toBe("APPROVE");
+  });
+
+  it("escalates when the category is unknown and an allow list exists", () => {
+    const decision = decide({ lineItems: [item({ category: null })] });
+
+    expect(decision.verdict).toBe("ESCALATE");
+    expect(decision.reasons).toEqual(["Item 1: Cannot verify category from catalog data"]);
   });
 
   it("blocks a merchant on the block list even when the name casing differs", () => {
@@ -259,6 +270,25 @@ describe("policy engine", () => {
 
     expect(decision.verdict).toBe("BLOCK");
     expect(decision.reasons).toContain('Item 1 merchant "Blocked Mart" is blocked.');
+  });
+
+  it("blocks a subdomain of a blocked domain", () => {
+    const decision = decide(
+      { lineItems: [item({ merchant: "https://www.shop.amazon.com/dp/1" })] },
+      { mandate: { blockedMerchants: ["Amazon.com"] } },
+    );
+
+    expect(decision.verdict).toBe("BLOCK");
+    expect(decision.reasons).toContain('Item 1 merchant "https://www.shop.amazon.com/dp/1" is blocked.');
+  });
+
+  it("allows a subdomain of an allowed domain", () => {
+    const decision = decide(
+      { lineItems: [item({ merchant: "smile.amazon.com" })] },
+      { mandate: { allowedMerchants: ["https://www.amazon.com/cart"] } },
+    );
+
+    expect(decision.verdict).toBe("APPROVE");
   });
 
   it("matches a merchant domain with or without a leading www", () => {
@@ -291,11 +321,36 @@ describe("policy engine", () => {
     expect(decision.verdict).toBe("APPROVE");
   });
 
-  it("blocks a line without free returns when the mandate requires them", () => {
-    const decision = decide({ lineItems: [item({ freeReturns: false })] });
+  it("blocks a known free-returns failure and escalates when returns are unknown", () => {
+    const known = decide({ lineItems: [item({ freeReturns: false })] });
+    const unknown = decide({ lineItems: [item({ freeReturns: null })] });
+
+    expect(known.verdict).toBe("BLOCK");
+    expect(known.reasons).toContain("Item 1 does not include free returns.");
+    expect(unknown.verdict).toBe("ESCALATE");
+    expect(unknown.reasons).toEqual(["Item 1: Cannot verify free returns from catalog data"]);
+  });
+
+  it("blocks when unknown catalog data is combined with a cap breach", () => {
+    const decision = decide(
+      { lineItems: [item({ freeReturns: null, unitPriceCents: 2_001 })] },
+      { mandate: { maxPerItemCents: 2_000, maxTotalCents: 5_000, escalateAboveCents: 5_000 } },
+    );
 
     expect(decision.verdict).toBe("BLOCK");
-    expect(decision.reasons).toContain("Item 1 does not include free returns.");
+    expect(decision.reasons).toContain(
+      "Item 1 price of 2001 cents exceeds the per-item cap of 2000 cents.",
+    );
+    expect(decision.reasons).toContain("Item 1: Cannot verify free returns from catalog data");
+  });
+
+  it("ignores unknown returns and delivery when those rules are not required", () => {
+    const decision = decide(
+      { lineItems: [item({ freeReturns: null, deliveryDate: null })] },
+      { mandate: { requireFreeReturns: false, deliverBy: null } },
+    );
+
+    expect(decision.verdict).toBe("APPROVE");
   });
 
   it("allows a line without free returns when the mandate does not require them", () => {
@@ -315,8 +370,8 @@ describe("policy engine", () => {
     expect(onDate.verdict).toBe("APPROVE");
     expect(after.verdict).toBe("BLOCK");
     expect(after.reasons).toContain("Item 1 delivery date 2026-10-21 is after 2026-10-20.");
-    expect(missing.verdict).toBe("BLOCK");
-    expect(missing.reasons).toContain("Item 1 is missing a delivery date.");
+    expect(missing.verdict).toBe("ESCALATE");
+    expect(missing.reasons).toContain("Item 1: Cannot verify delivery date from catalog data");
   });
 
   it("does not check delivery when the mandate has no deliver-by date", () => {

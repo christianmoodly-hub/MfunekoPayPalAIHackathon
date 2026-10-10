@@ -19,6 +19,8 @@ const validDraft = {
   requireFreeReturns: true,
   deliverBy: "2026-10-20",
   escalateAboveCents: 3000,
+  searchQuery: "office paper",
+  needsInput: [],
 };
 
 function generateReturning(...outputs: string[]): { generate: GeminiGenerate; requests: GeminiRequest[] } {
@@ -53,6 +55,7 @@ describe("parseMandate", () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.model).toBe("gemini-3.8-flash");
+    expect(requests[0]?.systemInstruction).toContain("amazon.com");
     const properties = (requests[0]?.responseSchema.properties ?? {}) as Record<string, unknown>;
     expect(properties).not.toHaveProperty("id");
     expect(properties).not.toHaveProperty("status");
@@ -115,7 +118,44 @@ describe("parseMandate", () => {
     expect(prompt).toContain("< /mandate_text>");
     expect(mandate.description).toBe(injection);
     expect(mandate.maxTotalCents).toBe(5000);
-    expect(mandate.status).toBe("draft");
+  });
+
+  it("stores zero caps when the model reports a missing budget", async () => {
+    const { generate } = generateReturning(
+      JSON.stringify({
+        ...validDraft,
+        maxTotalCents: 9000,
+        maxPerItemCents: 1000,
+        escalateAboveCents: 1000,
+        needsInput: ["Budget"],
+      }),
+    );
+
+    const mandate = await parseMandate("Buy paper.", {
+      generate,
+      model: "gemini-3.8-flash",
+      now,
+      createId: () => "mandate-budget",
+    });
+
+    expect(mandate.maxTotalCents).toBe(0);
+    expect(mandate.maxPerItemCents).toBe(0);
+    expect(mandate.escalateAboveCents).toBe(0);
+    expect(mandate.needsInput).toEqual(["budget"]);
+  });
+
+  it("defaults an unstated escalate threshold to half the max", async () => {
+    const { generate } = generateReturning(JSON.stringify({ ...validDraft, escalateAboveCents: null }));
+
+    const mandate = await parseMandate("Buy paper.", {
+      generate,
+      model: "gemini-3.8-flash",
+      now,
+      createId: () => "mandate-half",
+    });
+
+    expect(mandate.maxTotalCents).toBe(5000);
+    expect(mandate.escalateAboveCents).toBe(2500);
   });
 
   it("assigns a uuid when no id factory is provided", async () => {

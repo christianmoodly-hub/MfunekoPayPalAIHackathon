@@ -9,9 +9,16 @@ export const draftMandateSchema = mandateSchema.omit({
   expiresAt: true,
 });
 
+export const modelDraftSchema = draftMandateSchema.extend({
+  escalateAboveCents: z.number().int().nonnegative().nullable(),
+});
+
 export const mandateEditsSchema = draftMandateSchema
+  .omit({ needsInput: true })
   .extend({
     description: z.string().trim().min(1),
+    searchQuery: z.string().trim().min(1),
+    maxTotalCents: z.number().int().positive(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -34,7 +41,7 @@ export type DraftMandate = z.infer<typeof draftMandateSchema>;
 export type MandateEdits = z.infer<typeof mandateEditsSchema>;
 
 export function draftMandateJsonSchema(): Record<string, unknown> {
-  const schema = draftMandateSchema.toJSONSchema() as Record<string, unknown>;
+  const schema = modelDraftSchema.toJSONSchema() as Record<string, unknown>;
   delete schema.$schema;
   return schema;
 }

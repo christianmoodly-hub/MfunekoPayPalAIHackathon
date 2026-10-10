@@ -19,15 +19,17 @@ export const mandateSchema = z.object({
   escalateAboveCents: cents,
   expiresAt: timestamp,
   status: mandateStatusSchema,
+  searchQuery: z.string(),
+  needsInput: z.array(z.string().trim().min(1)),
 });
 
 export const lineItemSchema = z.object({
   merchant: z.string().trim().min(1),
-  category: z.string().trim().min(1),
+  category: z.string().trim().min(1).nullable(),
   unitPriceCents: cents,
   quantity: z.number().int().positive(),
-  freeReturns: z.boolean(),
-  deliveryDate: calendarDate.nullable().optional(),
+  freeReturns: z.boolean().nullable(),
+  deliveryDate: z.string().nullable(),
   checkoutUnitPriceCents: cents.optional(),
 });
 

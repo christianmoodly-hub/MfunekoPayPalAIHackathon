@@ -2,8 +2,9 @@ import { redactSecrets } from "@/lib/gemini/redact";
 import type { GeminiGenerate } from "@/lib/gemini/client";
 import type { Mandate } from "@/lib/policy/schema";
 
+import { finalizeMandateDraft } from "./defaults";
 import { mandatePrompt } from "./prompt";
-import { draftMandateJsonSchema, draftMandateSchema, mandateSchema } from "./schema";
+import { draftMandateJsonSchema, mandateSchema, modelDraftSchema } from "./schema";
 
 const DEFAULT_MANDATE_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_ATTEMPTS = 2;
@@ -55,14 +56,15 @@ export async function parseMandate(
 
     const parsed = parseDraft(raw);
     if (parsed.ok) {
+      const finalized = finalizeMandateDraft(parsed.value);
       return mandateSchema.parse({
-        ...parsed.value,
+        ...finalized,
         id: options.createId?.() ?? crypto.randomUUID(),
         description: text,
         status: "draft",
         expiresAt: defaultExpiresAt(options.now ?? new Date()),
-        allowedMerchants: parsed.value.allowedMerchants ?? null,
-        deliverBy: parsed.value.deliverBy ?? null,
+        allowedMerchants: finalized.allowedMerchants ?? null,
+        deliverBy: finalized.deliverBy ?? null,
       });
     }
 
@@ -72,7 +74,7 @@ export async function parseMandate(
   throw new MandateParseError(`${lastProblem} Failed after ${MAX_ATTEMPTS} attempts.`);
 }
 
-function parseDraft(raw: string): { ok: true; value: ReturnType<typeof draftMandateSchema.parse> } | { ok: false; problem: string } {
+function parseDraft(raw: string): { ok: true; value: ReturnType<typeof modelDraftSchema.parse> } | { ok: false; problem: string } {
   let json: unknown;
   try {
     json = JSON.parse(raw);
@@ -80,7 +82,7 @@ function parseDraft(raw: string): { ok: true; value: ReturnType<typeof draftMand
     return { ok: false, problem: "Gemini output was not valid JSON." };
   }
 
-  const result = draftMandateSchema.safeParse(json);
+  const result = modelDraftSchema.safeParse(json);
   if (!result.success) {
     return { ok: false, problem: "Gemini output did not match the mandate schema." };
   }

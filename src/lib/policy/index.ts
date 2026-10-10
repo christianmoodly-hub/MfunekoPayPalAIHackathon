@@ -1,5 +1,6 @@
+export { categoryMatches, categorySegments, joinCategoryParts } from "./categories";
 export { evaluatePolicy, type PolicyDecision, type PolicyVerdict } from "./evaluate";
-export { normalizeMerchant } from "./merchants";
+export { merchantCoveredBy, normalizeMerchant } from "./merchants";
 export {
   lineItemSchema,
   mandateSchema,

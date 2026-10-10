@@ -1,6 +1,7 @@
 import type { Channel3Offer, Channel3Product } from "@/lib/channel3/schema";
 import { majorUnitsToCents } from "@/lib/money";
-import { normalizeMerchant } from "@/lib/policy/merchants";
+import { joinCategoryParts } from "@/lib/policy/categories";
+import { merchantCoveredBy, normalizeMerchant } from "@/lib/policy/merchants";
 import type { Mandate, ProposedPurchase } from "@/lib/policy/schema";
 
 import type { Ranking } from "./schema";
@@ -12,7 +13,7 @@ export type ConsideredCandidate = {
   category: string | null;
   unitPriceCents: number | null;
   currency: string | null;
-  freeReturns: false;
+  freeReturns: null;
   deliveryDate: null;
   eligible: boolean;
 };
@@ -33,7 +34,7 @@ export function considerProducts(mandate: Mandate, products: Channel3Product[]):
       category: product.category?.slug ?? null,
       unitPriceCents: chosen?.unitPriceCents ?? null,
       currency: chosen ? "USD" : null,
-      freeReturns: false,
+      freeReturns: null,
       deliveryDate: null,
       eligible: chosen !== null,
     };
@@ -60,10 +61,10 @@ export function purchaseFromSelection(
     lineItems: [
       {
         merchant: chosen.domain,
-        category: categoryForPolicy(mandate, product),
+        category: catalogCategory(product),
         unitPriceCents: chosen.unitPriceCents,
         quantity: selection.quantity,
-        freeReturns: false,
+        freeReturns: null,
         deliveryDate: null,
       },
     ],
@@ -72,18 +73,15 @@ export function purchaseFromSelection(
 }
 
 function chooseOffer(mandate: Mandate, product: Channel3Product): ChosenOffer | null {
-  const blocked = new Set(mandate.blockedMerchants.map(normalizeMerchant));
-  const allowedList = (mandate.allowedMerchants ?? []).map(normalizeMerchant);
-  const restrictAllowed = allowedList.length > 0;
-  const allowed = new Set(allowedList);
+  const restrictAllowed = (mandate.allowedMerchants ?? []).length > 0;
   const choices: ChosenOffer[] = [];
 
   for (const offer of product.offers ?? []) {
     const domain = normalizeMerchant(offer.domain);
-    if (!domain || blocked.has(domain)) {
+    if (!domain || mandate.blockedMerchants.some((rule) => merchantCoveredBy(rule, domain))) {
       continue;
     }
-    if (restrictAllowed && !allowed.has(domain)) {
+    if (restrictAllowed && !mandate.allowedMerchants?.some((rule) => merchantCoveredBy(rule, domain))) {
       continue;
     }
     if (offer.price.currency !== "USD") {
@@ -116,12 +114,12 @@ function chooseOffer(mandate: Mandate, product: Channel3Product): ChosenOffer | 
   return choices[0] ?? null;
 }
 
-function categoryForPolicy(mandate: Mandate, product: Channel3Product): string {
-  if (product.category?.slug) {
-    return product.category.slug;
+function catalogCategory(product: Channel3Product): string | null {
+  const category = product.category;
+  if (!category) {
+    return null;
   }
-  if (mandate.allowedCategories !== null) {
-    return "missing";
-  }
-  return "uncategorized";
+
+  const nodes = [...(category.path ?? []), { slug: category.slug, title: category.title }];
+  return joinCategoryParts(nodes.flatMap((node) => [node.slug, node.title]));
 }

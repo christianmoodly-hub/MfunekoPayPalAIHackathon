@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
+    "@channel3/sdk": "^4.1.0",
     "@google/genai": "^2.28.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",

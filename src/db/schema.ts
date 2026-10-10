@@ -21,5 +21,7 @@ export const mandates = pgTable("mandates", {
   escalateAboveCents: integer("escalate_above_cents").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   status: text("status").notNull(),
+  searchQuery: text("search_query").notNull().default(""),
+  needsInput: jsonb("needs_input").$type<string[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -20,10 +20,16 @@ export const channel3OfferSchema = z.object({
   condition: z.enum(["new", "used"]).nullable().optional(),
 });
 
+const categoryRefSchema = z.object({
+  slug: z.string().trim().min(1),
+  title: z.string().trim().min(1),
+});
+
 export const channel3CategorySchema = z.object({
   slug: z.string().trim().min(1),
   title: z.string().trim().min(1),
   has_children: z.boolean(),
+  path: z.array(categoryRefSchema).optional(),
 });
 
 export const channel3ProductSchema = z.object({

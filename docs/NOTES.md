@@ -99,12 +99,15 @@ Checked 2026-10-10.
 - Search response guide: https://docs.trychannel3.com/guides/response-overview
 - Product guide: https://docs.trychannel3.com/guides/product
 - Offer guide: https://docs.trychannel3.com/guides/offer
+- Category guide: https://docs.trychannel3.com/guides/category
+- Category model: https://docs.trychannel3.com/api-reference/category-model
 - Product detail: https://docs.trychannel3.com/api-reference/v1/product-detail
+- Product detail guide: https://docs.trychannel3.com/guides/product-detail
 - Make a search: https://docs.trychannel3.com/guides/make-a-search
 
-Base URL is `https://api.trychannel3.com`. Search is `POST /v1/search` with header `x-api-key`. The client asks for `config.currency=USD`, `country=US`, and `language=en`, and limits the page to 10 products.
+Base URL is `https://api.trychannel3.com`. Search is `POST /v1/search` with header `x-api-key`. The app calls it through `@channel3/sdk` (`Channel3.products.search`; SDK guide: https://docs.trychannel3.com/sdk). The client asks for `config.currency=USD`, `country=US`, and `language=en`, and limits the page to 10 products. The key is read from `CHANNEL3_API_KEY`.
 
-The OpenAPI `Product` requires `id` and `title`. Optional fields used here are `description`, `brands` (`id`, `name`), `category` (`slug`, `title`, `has_children`), and `offers`.
+The OpenAPI `Product` requires `id` and `title`. Optional fields used here are `description`, `brands` (`id`, `name`), `category` (`slug`, `title`, `has_children`, and optional `path` of `{slug, title}` from the root), and `offers`. Category slugs are hyphenated path segments. Matching treats hyphens, underscores, and spaces as the same separator and accepts a hit on any segment of a hierarchical path.
 
 The OpenAPI `ProductOffer` requires `url`, `domain`, `price`, and `availability` (`InStock` or `OutOfStock`). `Price` requires `price` (number, current amount in major units) and `currency`. `compare_at_price` is optional. The offer guide's JSON example uses `price.amount` instead of `price.price`. The client follows the OpenAPI schema and rejects the `amount` shape.
 
@@ -113,12 +116,16 @@ What the docs show for the fields this app needs:
 - Price and currency: yes, on the offer, as `price.price` and `price.currency`. Not on the product.
 - Merchant name: no name field on the offer. The stable merchant value on the offer is `domain`. `brands[].name` is the product brand, not the retailer. Search filters accept website ids or domains, but the offer object does not return a website id.
 - Stable product id: yes, `product.id`.
-- Category: yes, optional `category.slug` and `category.title`. The category can be null.
+- Category: yes, optional `category.slug`, `category.title`, and `category.path`. The category can be null.
 - Return policy: no field on the product or the offer. The commissions FAQ mentions a retailer return window for payouts, which is not a free-returns flag.
 - Shipping or delivery estimate: no field. `dimensions` is physical size and weight, not a delivery date.
 
-`src/lib/shopping` therefore sets `freeReturns` to false and `deliveryDate` to null. Merchant allow and block lists are compared to the normalized offer domain, including a leading `www.`. Prior spend is the sum of `paypal.order.captured` ledger amounts for the mandate. Gemini ranking returns only `productId`, `quantity`, and `reasoning`.
+`src/lib/shopping` therefore sets `freeReturns` and `deliveryDate` to null, meaning unknown. A required rule with unknown catalog data escalates. Merchant allow and block lists compare normalized domains, and a listed domain also covers its subdomains. Prior spend is the sum of `paypal.order.captured` ledger amounts for the mandate. Gemini ranking returns only `productId`, `quantity`, and `reasoning`.
+
+Product detail is `GET https://api.trychannel3.com/v1/products/{product_id}` with `x-api-key` and query `currency`, `country`, and `language` (the client asks for USD, US, and en). Prices are still on `offers`. `refetchPrice` in `src/lib/channel3/price.ts` reads the lowest in-stock USD offer. Checkout does not call it yet.
 
 ```bash
-npm run shop -- <mandateId> "office paper"
+npm run shop -- <mandateId>
 ```
+
+The command uses the mandate's `searchQuery`. Add a query argument to override it.

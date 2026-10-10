@@ -23,6 +23,8 @@ function mandate(overrides: Partial<Mandate> = {}): Mandate {
     deliverBy: null,
     escalateAboveCents: 5_000,
     expiresAt: "2026-11-01T00:00:00.000Z",
+    searchQuery: "office supplies",
+    needsInput: [],
     status: "active",
     ...overrides,
   };
@@ -110,17 +112,17 @@ describe("runShoppingSearch", () => {
     expect(result.purchase.lineItems).toEqual([
       {
         merchant: "shop.example",
-        category: "office",
+        category: "office/Office supplies",
         unitPriceCents: 1250,
         quantity: 1,
-        freeReturns: false,
+        freeReturns: null,
         deliveryDate: null,
       },
     ]);
     expect(result.purchase.statedTotalCents).toBe(1250);
-    expect(result.decision.verdict).toBe("BLOCK");
-    expect(result.decision.reasons).toContain("Item 1 does not include free returns.");
-    expect(result.decision.reasons).toContain("Item 1 is missing a delivery date.");
+    expect(result.decision.verdict).toBe("ESCALATE");
+    expect(result.decision.reasons).toContain("Item 1: Cannot verify free returns from catalog data");
+    expect(result.decision.reasons).toContain("Item 1: Cannot verify delivery date from catalog data");
     expect(events.map((event) => event.type)).toEqual([
       "shopping.search",
       "shopping.candidate",
@@ -147,7 +149,7 @@ describe("runShoppingSearch", () => {
     expect(events.find((event) => event.type === "shopping.reasoning")?.payload).toMatchObject({ accepted: false });
   });
 
-  it("blocks when return data is missing and the mandate requires free returns", async () => {
+  it("escalates when return data is missing and the mandate requires free returns", async () => {
     const parsed = channel3SearchResponseSchema.parse({
       products: [
         {
@@ -177,10 +179,10 @@ describe("runShoppingSearch", () => {
 
     const result = await run;
 
-    expect(result.purchase.lineItems[0]?.freeReturns).toBe(false);
+    expect(result.purchase.lineItems[0]?.freeReturns).toBeNull();
     expect(result.purchase.lineItems[0]?.deliveryDate).toBeNull();
-    expect(result.decision.verdict).toBe("BLOCK");
-    expect(result.decision.reasons).toContain("Item 1 does not include free returns.");
+    expect(result.decision.verdict).toBe("ESCALATE");
+    expect(result.decision.reasons).toContain("Item 1: Cannot verify free returns from catalog data");
     expect(result.decision.reasons.some((reason) => reason.includes("delivery"))).toBe(false);
   });
 
@@ -188,6 +190,12 @@ describe("runShoppingSearch", () => {
     const listed = product({
       title: "Blocked Mart special",
       offers: [
+        {
+          url: "https://buy.example/sub",
+          domain: "https://shop.blocked.example/item",
+          price: { price: 0.5, currency: "USD" },
+          availability: "InStock",
+        },
         {
           url: "https://buy.example/blocked",
           domain: "blocked.example",
