@@ -49,6 +49,7 @@ describe("parseMandate", () => {
     const mandate = await parseMandate("Buy office supplies.", {
       generate,
       model: "gemini-3.8-flash",
+      categorySlugs: ["office"],
       now,
       createId: () => "mandate-1",
     });
@@ -77,6 +78,7 @@ describe("parseMandate", () => {
     const mandate = await parseMandate("Buy paper.", {
       generate,
       model: "gemini-3.8-flash",
+      categorySlugs: ["office"],
       now,
       createId: () => "mandate-2",
     });
@@ -93,6 +95,7 @@ describe("parseMandate", () => {
       parseMandate("Buy paper.", {
         generate,
         model: "gemini-3.8-flash",
+      categorySlugs: ["office"],
         now,
         createId: () => "mandate-3",
       }),
@@ -107,6 +110,7 @@ describe("parseMandate", () => {
     const mandate = await parseMandate(injection, {
       generate,
       model: "gemini-3.8-flash",
+      categorySlugs: ["office"],
       now,
       createId: () => "mandate-4",
     });
@@ -118,6 +122,28 @@ describe("parseMandate", () => {
     expect(prompt).toContain("< /mandate_text>");
     expect(mandate.description).toBe(injection);
     expect(mandate.maxTotalCents).toBe(5000);
+  });
+
+  it("keeps only a real Channel3 slug for a printer paper mandate", async () => {
+    const { generate, requests } = generateReturning(
+      JSON.stringify({
+        ...validDraft,
+        allowedCategories: ["printer paper", "printer-copier-paper", "Office Supplies"],
+        searchQuery: "printer paper",
+      }),
+    );
+
+    const mandate = await parseMandate("Buy printer paper.", {
+      generate,
+      model: "gemini-3.8-flash",
+      categorySlugs: ["printer-copier-paper", "paper-products"],
+      now,
+      createId: () => "mandate-paper",
+    });
+
+    expect(requests[0]?.prompt).toContain("printer-copier-paper");
+    expect(mandate.allowedCategories).toEqual(["printer-copier-paper"]);
+    expect(mandate.searchQuery).toBe("printer paper");
   });
 
   it("stores zero caps when the model reports a missing budget", async () => {
@@ -134,6 +160,7 @@ describe("parseMandate", () => {
     const mandate = await parseMandate("Buy paper.", {
       generate,
       model: "gemini-3.8-flash",
+      categorySlugs: ["office"],
       now,
       createId: () => "mandate-budget",
     });
@@ -150,6 +177,7 @@ describe("parseMandate", () => {
     const mandate = await parseMandate("Buy paper.", {
       generate,
       model: "gemini-3.8-flash",
+      categorySlugs: ["office"],
       now,
       createId: () => "mandate-half",
     });
@@ -164,6 +192,7 @@ describe("parseMandate", () => {
     const mandate = await parseMandate("Buy paper.", {
       generate,
       model: "gemini-3.8-flash",
+      categorySlugs: ["office"],
       now,
     });
 
@@ -178,7 +207,7 @@ describe("parseMandate", () => {
     });
 
     await expect(
-      parseMandate("Buy paper.", { generate, model: "gemini-3.8-flash", now }),
+      parseMandate("Buy paper.", { generate, model: "gemini-3.8-flash", categorySlugs: ["office"], now }),
     ).rejects.toThrow(/\[redacted\]/);
     expect(generate).toHaveBeenCalledTimes(1);
   });

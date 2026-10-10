@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { usdToCents } from "@/lib/money";
+
 export const paypalLinkSchema = z.object({
   href: z.string().min(1),
   rel: z.string().min(1),
@@ -62,6 +64,19 @@ export function approvalUrl(order: PayPalOrder): string | undefined {
 
 export function captureId(order: PayPalOrder): string | undefined {
   return order.purchase_units?.[0]?.payments?.captures?.[0]?.id;
+}
+
+export function chargedAmountCents(order: PayPalOrder): number | null {
+  const captureAmount = order.purchase_units?.[0]?.payments?.captures?.[0]?.amount;
+  const amount = captureAmount ?? order.purchase_units?.[0]?.amount;
+  if (!amount || amount.currency_code !== "USD") {
+    return null;
+  }
+  try {
+    return usdToCents(amount.value);
+  } catch {
+    return null;
+  }
 }
 
 export function orderAmount(order: PayPalOrder): { currencyCode: string; value: string } | null {

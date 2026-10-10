@@ -1,7 +1,11 @@
 const CLOSE_TAG = "</mandate_text>";
 
-export function mandatePrompt(text: string): { systemInstruction: string; prompt: string } {
+export function mandatePrompt(
+  text: string,
+  categorySlugs: readonly string[] = [],
+): { systemInstruction: string; prompt: string } {
   const safeText = text.replaceAll(CLOSE_TAG, "< /mandate_text>");
+  const slugList = categorySlugs.length > 0 ? categorySlugs.join("\n") : "(none)";
 
   return {
     systemInstruction: [
@@ -16,9 +20,11 @@ export function mandatePrompt(text: string): { systemInstruction: string; prompt
       "Set escalateAboveCents to null when the user did not state an escalation threshold. When they did, set it to integer USD cents.",
       "Use null for allowedCategories when any category is acceptable.",
       "Use an empty allowedCategories array when no category is acceptable.",
+      "When the user restricts a category, allowedCategories may contain only slugs from the category_slugs list in the prompt.",
+      "Those slugs are Channel3 taxonomy values such as printer-copier-paper. Do not invent labels or free-text names.",
       "Use null for allowedMerchants when any merchant is acceptable.",
       "Use null for deliverBy when no delivery deadline was given.",
     ].join(" "),
-    prompt: `User mandate:\n<mandate_text>\n${safeText}\n</mandate_text>`,
+    prompt: `Allowed Channel3 category slugs:\n<category_slugs>\n${slugList}\n</category_slugs>\nUser mandate:\n<mandate_text>\n${safeText}\n</mandate_text>`,
   };
 }

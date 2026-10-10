@@ -8,6 +8,15 @@ export class CheckoutAmountError extends Error {
   }
 }
 
+export function assertPayPalOrderAmount(order: PayPalOrder, approvedCents: number): void {
+  const orderCents = moneyCents(order.purchase_units?.[0]?.amount, "order", order.id);
+  if (orderCents !== approvedCents) {
+    throw new CheckoutAmountError(
+      `PayPal order amount does not match the approved total of ${approvedCents} cents. Order amount is ${orderCents} cents.`,
+    );
+  }
+}
+
 export function assertPayPalCharge(order: PayPalOrder, approvedCents: number): void {
   if (order.status !== "COMPLETED") {
     throw new CheckoutAmountError(`PayPal order ${order.id} status is ${order.status}.`);

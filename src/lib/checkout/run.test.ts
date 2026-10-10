@@ -234,4 +234,71 @@ describe("guardedCheckout", () => {
     expect(blocked).toHaveLength(1);
     expect(charge).toHaveBeenCalledTimes(1);
   });
+
+  it("releases the reservation when PayPal throws", async () => {
+    const ledger = memoryLedger();
+
+    await expect(
+      guardedCheckout(
+        {
+          mandate,
+          purchase: purchase(600),
+          productIds: ["paper-1"],
+          checkedAt: "2026-10-10T12:00:00.000Z",
+        },
+        {
+          refetchPrice: async () => 600,
+          loadEvents: ledger.loadEvents,
+          reserve: ledger.reserve,
+          release: ledger.release,
+          appendLedger: ledger.appendLedger,
+          createId: () => "reservation-fail",
+          charge: async () => {
+            throw new Error("paypal down");
+          },
+        },
+      ),
+    ).rejects.toThrow(/paypal down/);
+
+    expect(ledger.events.some((event) => event.type === "paypal.order.captured")).toBe(false);
+    expect(openSpendCents(ledger.events, mandate.id)).toBe(0);
+  });
+
+  it("stores an escalation and does not create an order", async () => {
+    const ledger = memoryLedger();
+    const charge = vi.fn(async () => completedOrder("6.00"));
+    const saved: unknown[] = [];
+
+    const result = await guardedCheckout(
+      {
+        mandate: { ...mandate, escalateAboveCents: 100 },
+        purchase: purchase(600),
+        productIds: ["paper-1"],
+        checkedAt: "2026-10-10T12:00:00.000Z",
+      },
+      {
+        refetchPrice: async () => 600,
+        loadEvents: ledger.loadEvents,
+        reserve: ledger.reserve,
+        release: ledger.release,
+        appendLedger: ledger.appendLedger,
+        charge,
+        saveApproval: async (approval) => {
+          saved.push(approval);
+        },
+      },
+    );
+
+    expect(result.verdict).toBe("ESCALATE");
+    expect(result.chargedCents).toBeNull();
+    expect(result.orderId).toBeNull();
+    expect(charge).not.toHaveBeenCalled();
+    expect(saved).toEqual([
+      expect.objectContaining({
+        status: "pending",
+        expectedCents: 600,
+        expiresAt: "2026-10-10T13:00:00.000Z",
+      }),
+    ]);
+  });
 });

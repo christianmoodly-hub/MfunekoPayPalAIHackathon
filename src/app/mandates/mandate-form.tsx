@@ -26,7 +26,7 @@ type DraftFields = {
   maxTotalCents: string;
   maxPerItemCents: string;
   anyCategory: boolean;
-  allowedCategories: string;
+  allowedCategories: string[];
   blockedMerchants: string;
   allowedMerchants: string;
   requireFreeReturns: boolean;
@@ -42,7 +42,7 @@ const emptyFields: DraftFields = {
   maxTotalCents: "",
   maxPerItemCents: "",
   anyCategory: true,
-  allowedCategories: "",
+  allowedCategories: [],
   blockedMerchants: "",
   allowedMerchants: "",
   requireFreeReturns: false,
@@ -197,13 +197,32 @@ export function MandateForm() {
             Allow any category
           </label>
           {fields.anyCategory ? null : (
-            <Field label="Allowed categories (comma-separated, empty means none)">
-              <input
-                className="rounded-lg border border-border bg-background px-3 py-2"
-                value={fields.allowedCategories}
-                onChange={(event) => update(setFields, "allowedCategories", event.target.value)}
-              />
-            </Field>
+            <div className="flex flex-col gap-2 text-sm">
+              Allowed categories
+              {fields.allowedCategories.length === 0 ? (
+                <p className="text-muted-foreground">No category is allowed.</p>
+              ) : (
+                <ul className="flex flex-wrap gap-2">
+                  {fields.allowedCategories.map((slug) => (
+                    <li key={slug}>
+                      <button
+                        type="button"
+                        className="rounded-full border border-border bg-background px-3 py-1"
+                        onClick={() =>
+                          setFields((current) => ({
+                            ...current,
+                            allowedCategories: current.allowedCategories.filter((item) => item !== slug),
+                          }))
+                        }
+                      >
+                        {slug}
+                        <span className="sr-only"> Remove</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
           <Field label="Blocked merchant domains (amazon.com)">
             <input
@@ -271,7 +290,7 @@ function fieldsFromMandate(mandate: Mandate): DraftFields {
     maxTotalCents: String(mandate.maxTotalCents),
     maxPerItemCents: String(mandate.maxPerItemCents),
     anyCategory: mandate.allowedCategories === null,
-    allowedCategories: (mandate.allowedCategories ?? []).join(", "),
+    allowedCategories: mandate.allowedCategories ?? [],
     blockedMerchants: mandate.blockedMerchants.join(", "),
     allowedMerchants: (mandate.allowedMerchants ?? []).join(", "),
     requireFreeReturns: mandate.requireFreeReturns,
@@ -288,7 +307,7 @@ function editsFromFields(fields: DraftFields) {
     description: fields.description,
     maxTotalCents: Number(fields.maxTotalCents),
     maxPerItemCents: Number(fields.maxPerItemCents),
-    allowedCategories: fields.anyCategory ? null : splitList(fields.allowedCategories),
+    allowedCategories: fields.anyCategory ? null : fields.allowedCategories,
     blockedMerchants: splitList(fields.blockedMerchants),
     allowedMerchants: splitList(fields.allowedMerchants).length === 0 ? null : splitList(fields.allowedMerchants),
     requireFreeReturns: fields.requireFreeReturns,

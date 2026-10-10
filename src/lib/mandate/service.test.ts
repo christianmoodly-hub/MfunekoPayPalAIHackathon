@@ -27,6 +27,7 @@ describe("createMandateFromText", () => {
     const mandate = await createMandateFromText("Buy paper.", {
       generate,
       model: "gemini-3.8-flash",
+      categorySlugs: ["office"],
       now: new Date("2026-10-09T12:00:00.000Z"),
       createId: () => "11111111-1111-4111-8111-111111111111",
       appendLedger: async (event) => {
@@ -49,6 +50,7 @@ describe("createMandateFromText", () => {
       createMandateFromText("Buy paper.", {
         generate,
         model: "gemini-3.8-flash",
+      categorySlugs: ["office"],
         appendLedger: async (event) => {
           events.push(event);
         },

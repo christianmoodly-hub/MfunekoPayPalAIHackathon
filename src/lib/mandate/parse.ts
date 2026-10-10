@@ -1,5 +1,7 @@
 import { redactSecrets } from "@/lib/gemini/redact";
 import type { GeminiGenerate } from "@/lib/gemini/client";
+import { readChannel3Env } from "@/lib/channel3/env";
+import { retainKnownCategories, searchCategorySlugs } from "@/lib/channel3/categories";
 import type { Mandate } from "@/lib/policy/schema";
 
 import { finalizeMandateDraft } from "./defaults";
@@ -30,13 +32,16 @@ export async function parseMandate(
     model: string;
     now?: Date;
     createId?: () => string;
+    categorySlugs?: readonly string[];
+    loadCategorySlugs?: (text: string) => Promise<readonly string[]>;
   },
 ): Promise<Mandate> {
   if (!text.trim()) {
     throw new MandateParseError("Mandate text is required.", 400);
   }
 
-  const { systemInstruction, prompt } = mandatePrompt(text);
+  const categorySlugs = options.categorySlugs ?? (await resolveCategorySlugs(text, options.loadCategorySlugs));
+  const { systemInstruction, prompt } = mandatePrompt(text, categorySlugs);
   const responseSchema = draftMandateJsonSchema();
   let lastProblem = "Gemini output was invalid.";
 
@@ -64,6 +69,7 @@ export async function parseMandate(
         status: "draft",
         expiresAt: defaultExpiresAt(options.now ?? new Date()),
         allowedMerchants: finalized.allowedMerchants ?? null,
+        allowedCategories: retainKnownCategories(finalized.allowedCategories, categorySlugs),
         deliverBy: finalized.deliverBy ?? null,
       });
     }
@@ -88,4 +94,14 @@ function parseDraft(raw: string): { ok: true; value: ReturnType<typeof modelDraf
   }
 
   return { ok: true, value: result.data };
+}
+
+async function resolveCategorySlugs(
+  text: string,
+  load: ((text: string) => Promise<readonly string[]>) | undefined,
+): Promise<readonly string[]> {
+  if (load) {
+    return load(text);
+  }
+  return searchCategorySlugs(text, readChannel3Env());
 }

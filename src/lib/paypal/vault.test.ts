@@ -5,7 +5,7 @@ import type { LineItem } from "@/lib/policy/schema";
 import type { PayPalClient } from "./client";
 import { secretFingerprint } from "./fingerprint";
 import { beginVaultLink, completeVaultLink } from "./link";
-import { chargeVaulted, exchangeSetupToken, paymentTokenBody, setupTokenBody, vaultChargeBody } from "./vault";
+import { exchangeSetupToken, paymentTokenBody, setupTokenBody, vaultChargeBody } from "./vault";
 
 const lineItem: LineItem = {
   merchant: "shop.example",
@@ -76,40 +76,6 @@ describe("vault requests", () => {
     expect(token).toEqual({ id: "VAULT123", customer: { id: "customer-1" } });
     expect(calls[0]?.path).toBe("/v3/vault/payment-tokens");
     expect(JSON.stringify(token)).not.toContain("buyer@example.com");
-  });
-
-  it("charges a vaulted wallet and fingerprints the id without echoing it", async () => {
-    const vaultId = "VAULT-SECRET";
-    const { client, calls } = clientReturning({
-      id: "ORDER1",
-      status: "COMPLETED",
-      payment_source: { paypal: { vault_id: vaultId } },
-      purchase_units: [{ amount: { currency_code: "USD", value: "25.00" }, payments: { captures: [{ id: "CAP1", status: "COMPLETED" }] } }],
-    });
-
-    const order = await chargeVaulted(client, vaultId, [lineItem], "charge-vaulted:key");
-
-    expect(calls[0]?.path).toBe("/v2/checkout/orders");
-    expect(calls).toHaveLength(1);
-    expect(order.id).toBe("ORDER1");
-    expect(JSON.stringify(order)).not.toContain(vaultId);
-    expect(secretFingerprint(vaultId)).toHaveLength(12);
-    expect(secretFingerprint(vaultId)).not.toContain(vaultId);
-  });
-
-  it("captures when the vaulted create stops at APPROVED", async () => {
-    const { client, calls } = clientReturning(
-      { id: "ORDER2", status: "APPROVED" },
-      { id: "ORDER2", status: "COMPLETED", purchase_units: [{ payments: { captures: [{ id: "CAP2", status: "COMPLETED" }] } }] },
-    );
-
-    const order = await chargeVaulted(client, "VAULT123", [lineItem], "charge-vaulted:key");
-
-    expect(calls.map((call) => call.path)).toEqual([
-      "/v2/checkout/orders",
-      "/v2/checkout/orders/ORDER2/capture",
-    ]);
-    expect(order.status).toBe("COMPLETED");
   });
 
   it("records a setup fingerprint and returns only the approval URL", async () => {

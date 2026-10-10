@@ -1,3 +1,5 @@
+import { retainKnownCategories, searchCategorySlugs } from "@/lib/channel3/categories";
+import { readChannel3Env } from "@/lib/channel3/env";
 import type { GeminiGenerate } from "@/lib/gemini/client";
 import { redactSecrets } from "@/lib/gemini/redact";
 import { appendLedgerEvent } from "@/lib/ledger";
@@ -5,6 +7,7 @@ import type { LedgerEventInput } from "@/lib/ledger/schema";
 import type { Mandate } from "@/lib/policy/schema";
 
 import { MandateParseError, parseMandate } from "./parse";
+import { mandateEditsSchema } from "./schema";
 import { confirmMandate, insertMandate, MandateStoreError } from "./store";
 
 type AppendLedger = (input: LedgerEventInput) => Promise<unknown>;
@@ -16,6 +19,7 @@ export async function createMandateFromText(
     model: string;
     now?: Date;
     createId?: () => string;
+    categorySlugs?: readonly string[];
     appendLedger?: AppendLedger;
     save?: (mandate: Mandate) => Promise<void>;
   },
@@ -57,7 +61,18 @@ export async function confirmSavedMandate(
   edits: unknown,
   append: AppendLedger = appendLedgerEvent,
 ): Promise<Mandate> {
-  const mandate = await confirmMandate(id, edits);
+  const parsed = mandateEditsSchema.safeParse(edits);
+  if (!parsed.success) {
+    throw new MandateStoreError("Confirmation fields are invalid.", 400);
+  }
+
+  const allowedCategories = parsed.data.allowedCategories
+    ? retainKnownCategories(
+        parsed.data.allowedCategories,
+        await searchCategorySlugs(parsed.data.description, readChannel3Env()),
+      )
+    : parsed.data.allowedCategories;
+  const mandate = await confirmMandate(id, { ...parsed.data, allowedCategories });
   await append({
     type: "mandate.confirmed",
     mandateId: mandate.id,

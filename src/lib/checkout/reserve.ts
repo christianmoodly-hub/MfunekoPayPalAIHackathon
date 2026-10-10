@@ -34,7 +34,7 @@ export async function reserveSpendInDb(input: {
 
   const db = getDb();
   await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.mandateId}))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.mandateId})::bigint)`);
     const rows = await tx
       .select({
         type: ledgerEvents.type,

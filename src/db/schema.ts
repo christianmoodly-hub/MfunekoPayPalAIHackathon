@@ -33,3 +33,17 @@ export const paymentMethods = pgTable("payment_methods", {
   status: text("status").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const approvals = pgTable("approvals", {
+  id: uuid("id").primaryKey(),
+  mandateId: text("mandate_id").notNull(),
+  purchase: jsonb("purchase").$type<Record<string, unknown>>().notNull(),
+  productIds: jsonb("product_ids").$type<string[]>().notNull(),
+  reasons: jsonb("reasons").$type<string[]>().notNull(),
+  status: text("status").notNull(),
+  orderId: text("order_id"),
+  reservationId: text("reservation_id"),
+  expectedCents: integer("expected_cents").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

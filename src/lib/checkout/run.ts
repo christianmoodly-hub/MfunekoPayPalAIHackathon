@@ -1,220 +1,155 @@
-import { centsToUsd } from "@/lib/money";
-import { captureId, orderAmount, type PayPalOrder } from "@/lib/paypal/schema";
-import { evaluatePolicy, type PolicyDecision } from "@/lib/policy";
-import { mandateSchema, proposedPurchaseSchema, type LineItem, type Mandate, type ProposedPurchase } from "@/lib/policy/schema";
+import { eq } from "drizzle-orm";
+
+import { getDb } from "@/db/client";
+import { ledgerEvents } from "@/db/schema";
 import type { LedgerEventInput } from "@/lib/ledger/schema";
+import type { PayPalOrder } from "@/lib/paypal/schema";
+import { evaluatePolicy, type PolicyVerdict } from "@/lib/policy";
+import type { LineItem, Mandate, ProposedPurchase } from "@/lib/policy/schema";
 
+import type { SpendEvent } from "./accounting";
+import { openSpendCents } from "./accounting";
 import { assertPayPalCharge } from "./amounts";
-import { openSpendCents, type SpendEvent } from "./accounting";
-import { releaseSpendInDb, reserveSpendInDb, SpendReserveError } from "./reserve";
+import type { StoredApproval } from "./approval";
+import { SpendReserveError } from "./reserve";
 
-type AppendLedger = (input: LedgerEventInput) => Promise<unknown>;
+const HOUR_MS = 60 * 60 * 1000;
 
 export type CheckoutInput = {
   mandate: Mandate;
   purchase: ProposedPurchase;
   productIds: string[];
-  checkedAt?: string;
-  userApproved?: boolean;
+  checkedAt: string;
 };
 
 export type CheckoutResult = {
-  verdict: PolicyDecision["verdict"];
+  verdict: PolicyVerdict;
   reasons: string[];
+  purchase: ProposedPurchase;
   chargedCents: number | null;
   orderId: string | null;
-  purchase: ProposedPurchase;
+  approvalId: string | null;
+  approvalUrl: string | null;
 };
 
-type CheckoutDeps = {
+export type CheckoutDeps = {
   refetchPrice: (productId: string) => Promise<number>;
   loadEvents: (mandateId: string) => Promise<SpendEvent[]>;
   reserve: (input: { mandateId: string; amountCents: number; capCents: number; reservationId: string }) => Promise<void>;
   release: (input: { mandateId: string; reservationId: string }) => Promise<void>;
+  appendLedger: (input: LedgerEventInput) => Promise<unknown>;
   charge: (lineItems: LineItem[], idempotencyKey: string) => Promise<PayPalOrder>;
-  appendLedger: AppendLedger;
   createId?: () => string;
+  saveApproval?: (approval: StoredApproval) => Promise<void>;
   vaultFingerprint?: string;
 };
 
 export async function guardedCheckout(input: CheckoutInput, deps: CheckoutDeps): Promise<CheckoutResult> {
-  const mandate = mandateSchema.parse(input.mandate);
-  const proposed = proposedPurchaseSchema.parse(input.purchase);
-  const checkedAt = input.checkedAt ?? new Date().toISOString();
-  const purchase = await purchaseWithRefetchedPrices(proposed, input.productIds, deps, mandate.id);
-  if (!purchase.ok) {
-    return blockedResult(proposed, [purchase.reason]);
-  }
-
-  const events = await deps.loadEvents(mandate.id);
-  const spentCents = openSpendCents(events, mandate.id);
+  const purchase = await withCheckoutPrices(input, deps.refetchPrice);
+  const events = await deps.loadEvents(input.mandate.id);
+  const spentCents = openSpendCents(events, input.mandate.id);
   const decision = evaluatePolicy({
-    mandate,
-    purchase: purchase.value,
+    mandate: input.mandate,
+    purchase,
     spend: { spentCents },
-    checkedAt,
-  });
-  await deps.appendLedger({
-    type: "checkout.verdict",
-    mandateId: mandate.id,
-    payload: {
-      verdict: decision.verdict,
-      reasons: decision.reasons,
-      statedTotalCents: purchase.value.statedTotalCents,
-      spentCents,
-    },
+    checkedAt: input.checkedAt,
   });
 
-  const payable = payableCents(purchase.value.lineItems);
-  const chargeable = decision.verdict === "APPROVE" || (decision.verdict === "ESCALATE" && input.userApproved === true);
-  if (!chargeable || payable === null) {
-    return {
-      verdict: decision.verdict,
-      reasons: decision.reasons,
-      chargedCents: null,
-      orderId: null,
-      purchase: purchase.value,
-    };
+  if (decision.verdict === "BLOCK") {
+    await deps.appendLedger({
+      type: "checkout.blocked",
+      mandateId: input.mandate.id,
+      payload: { reasons: decision.reasons, purchase },
+    });
+    return outcome(decision.verdict, decision.reasons, purchase, null, null, null, null);
   }
 
-  const reservationId = (deps.createId ?? (() => crypto.randomUUID()))();
+  if (decision.verdict === "ESCALATE") {
+    const approvalId = deps.createId?.() ?? crypto.randomUUID();
+    const expectedCents = payableCents(purchase);
+    const expiresAt = new Date(Date.parse(input.checkedAt) + HOUR_MS).toISOString();
+    const approval: StoredApproval = {
+      id: approvalId,
+      mandateId: input.mandate.id,
+      purchase,
+      productIds: input.productIds,
+      reasons: decision.reasons,
+      status: "pending",
+      orderId: null,
+      reservationId: null,
+      expectedCents,
+      expiresAt,
+    };
+    await deps.saveApproval?.(approval);
+    await deps.appendLedger({
+      type: "checkout.escalated",
+      mandateId: input.mandate.id,
+      payload: { approvalId, reasons: decision.reasons, purchase, expiresAt },
+    });
+    return outcome("ESCALATE", decision.reasons, purchase, null, null, approvalId, null);
+  }
+
+  const reservationId = deps.createId?.() ?? crypto.randomUUID();
+  const expectedCents = payableCents(purchase);
   try {
     await deps.reserve({
-      mandateId: mandate.id,
-      amountCents: payable,
-      capCents: mandate.maxTotalCents,
+      mandateId: input.mandate.id,
+      amountCents: expectedCents,
+      capCents: input.mandate.maxTotalCents,
       reservationId,
     });
   } catch (error) {
     if (error instanceof SpendReserveError) {
-      const reasons = [
-        `Cart total of ${payable} cents plus prior spend of ${error.spentCents} cents exceeds the mandate cap of ${error.capCents} cents.`,
-      ];
+      const reasons = [error.message];
       await deps.appendLedger({
-        type: "checkout.verdict",
-        mandateId: mandate.id,
-        payload: { verdict: "BLOCK", reasons, statedTotalCents: purchase.value.statedTotalCents },
+        type: "checkout.blocked",
+        mandateId: input.mandate.id,
+        payload: { reasons, purchase },
       });
-      return blockedResult(purchase.value, reasons);
+      return outcome("BLOCK", reasons, purchase, null, null, null, null);
     }
     throw error;
   }
 
+  let order: PayPalOrder;
   try {
-    const order = await deps.charge(purchase.value.lineItems, `checkout:${mandate.id}:${reservationId}`);
-    assertPayPalCharge(order, payable);
-    const payload = capturedPayload(order, payable, reservationId, deps.vaultFingerprint);
-    await deps.appendLedger({
-      type: "paypal.order.created",
-      mandateId: mandate.id,
-      payload,
-    });
-    await deps.appendLedger({
-      type: "paypal.order.captured",
-      mandateId: mandate.id,
-      payload: { ...payload, captureId: captureId(order) ?? null },
-    });
-    return {
-      verdict: decision.verdict,
-      reasons: decision.reasons,
-      chargedCents: payable,
-      orderId: order.id,
-      purchase: purchase.value,
-    };
+    order = await deps.charge(purchase.lineItems, `checkout:${reservationId}`);
+    assertPayPalCharge(order, expectedCents);
   } catch (error) {
-    await deps.release({ mandateId: mandate.id, reservationId }).catch(() => undefined);
-    await deps.appendLedger({
-      type: "paypal.order.failed",
-      mandateId: mandate.id,
-      payload: {
-        reservationId,
-        approvedCents: payable,
-        message: error instanceof Error ? error.message : "PayPal charge failed.",
-      },
-    }).catch(() => undefined);
+    await deps.release({ mandateId: input.mandate.id, reservationId });
+    await deps
+      .appendLedger({
+        type: "paypal.order.failed",
+        mandateId: input.mandate.id,
+        payload: {
+          reservationId,
+          message: error instanceof Error ? error.message : "PayPal charge failed.",
+        },
+      })
+      .catch(() => undefined);
     throw error;
   }
-}
 
-async function purchaseWithRefetchedPrices(
-  purchase: ProposedPurchase,
-  productIds: string[],
-  deps: CheckoutDeps,
-  mandateId: string,
-): Promise<{ ok: true; value: ProposedPurchase } | { ok: false; reason: string }> {
-  if (productIds.length !== purchase.lineItems.length) {
-    return { ok: false, reason: "Each line item needs a product id for a price refresh." };
-  }
-
-  const prices: number[] = [];
-  for (const productId of productIds) {
-    try {
-      prices.push(await deps.refetchPrice(productId));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Price refresh failed.";
-      await deps.appendLedger({
-        type: "checkout.price_failed",
-        mandateId,
-        payload: { productId, message },
-      });
-      return { ok: false, reason: message };
-    }
-  }
-
-  return {
-    ok: true,
-    value: {
-      statedTotalCents: purchase.statedTotalCents,
-      lineItems: purchase.lineItems.map((item, index) => ({
-        ...item,
-        checkoutUnitPriceCents: prices[index],
-      })),
+  const capture = order.purchase_units?.[0]?.payments?.captures?.[0];
+  await deps.appendLedger({
+    type: "paypal.order.captured",
+    mandateId: input.mandate.id,
+    payload: {
+      reservationId,
+      orderId: order.id,
+      status: order.status,
+      captureId: capture?.id ?? null,
+      amount: capture?.amount
+        ? { currencyCode: capture.amount.currency_code, value: capture.amount.value }
+        : null,
+      vaultFingerprint: deps.vaultFingerprint ?? null,
     },
-  };
-}
+  });
 
-function payableCents(items: LineItem[]): number | null {
-  let total = 0;
-  for (const item of items) {
-    const unit = item.checkoutUnitPriceCents ?? item.unitPriceCents;
-    const line = unit * item.quantity;
-    if (!Number.isSafeInteger(line) || line > Number.MAX_SAFE_INTEGER - total) {
-      return null;
-    }
-    total += line;
-  }
-  return total;
-}
-
-function capturedPayload(
-  order: PayPalOrder,
-  approvedCents: number,
-  reservationId: string,
-  vaultFingerprint: string | undefined,
-): Record<string, unknown> {
-  return {
-    orderId: order.id,
-    status: order.status,
-    amount: orderAmount(order) ?? { currencyCode: "USD", value: centsToUsd(approvedCents) },
-    reservationId,
-    vaultFingerprint: vaultFingerprint ?? null,
-  };
-}
-
-function blockedResult(purchase: ProposedPurchase, reasons: string[]): CheckoutResult {
-  return {
-    verdict: "BLOCK",
-    reasons,
-    chargedCents: null,
-    orderId: null,
-    purchase,
-  };
+  return outcome("APPROVE", decision.reasons, purchase, expectedCents, order.id, null, null);
 }
 
 export async function loadMandateSpendEvents(mandateId: string): Promise<SpendEvent[]> {
-  const { getDb } = await import("@/db/client");
-  const { ledgerEvents } = await import("@/db/schema");
-  const { eq } = await import("drizzle-orm");
   const rows = await getDb()
     .select({
       type: ledgerEvents.type,
@@ -226,8 +161,42 @@ export async function loadMandateSpendEvents(mandateId: string): Promise<SpendEv
   return rows;
 }
 
-export const databaseCheckoutDeps = {
-  reserve: reserveSpendInDb,
-  release: releaseSpendInDb,
-  loadEvents: loadMandateSpendEvents,
-};
+async function withCheckoutPrices(
+  input: CheckoutInput,
+  refetchPrice: (productId: string) => Promise<number>,
+): Promise<ProposedPurchase> {
+  const lineItems = await Promise.all(
+    input.purchase.lineItems.map(async (item, index) => {
+      const productId = input.productIds[index] ?? input.productIds[0];
+      if (!productId) {
+        throw new Error("Checkout is missing a product id.");
+      }
+      return { ...item, checkoutUnitPriceCents: await refetchPrice(productId) };
+    }),
+  );
+  return { ...input.purchase, lineItems };
+}
+
+function payableCents(purchase: ProposedPurchase): number {
+  let total = 0;
+  for (const item of purchase.lineItems) {
+    const line = (item.checkoutUnitPriceCents ?? item.unitPriceCents) * item.quantity;
+    if (!Number.isSafeInteger(line) || total > Number.MAX_SAFE_INTEGER - line) {
+      throw new Error("Payable total is not a safe integer number of cents.");
+    }
+    total += line;
+  }
+  return total;
+}
+
+function outcome(
+  verdict: PolicyVerdict,
+  reasons: string[],
+  purchase: ProposedPurchase,
+  chargedCents: number | null,
+  orderId: string | null,
+  approvalId: string | null,
+  approvalUrl: string | null,
+): CheckoutResult {
+  return { verdict, reasons, purchase, chargedCents, orderId, approvalId, approvalUrl };
+}
