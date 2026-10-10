@@ -1,3 +1,4 @@
+import { normalizeMerchant } from "./merchants";
 import {
   mandateSchema,
   proposedPurchaseSchema,
@@ -109,14 +110,14 @@ function itemReasons(mandate: Mandate, item: LineItem, index: number): string[] 
     }
   }
 
-  const merchant = normalize(item.merchant);
-  const blocked = new Set(mandate.blockedMerchants.map(normalize));
+  const merchant = normalizeMerchant(item.merchant);
+  const blocked = new Set(mandate.blockedMerchants.map(normalizeMerchant));
   if (blocked.has(merchant)) {
     reasons.push(`${label} merchant "${item.merchant}" is blocked.`);
   }
 
   if (mandate.allowedMerchants && mandate.allowedMerchants.length > 0) {
-    const allowed = new Set(mandate.allowedMerchants.map(normalize));
+    const allowed = new Set(mandate.allowedMerchants.map(normalizeMerchant));
     if (!allowed.has(merchant)) {
       reasons.push(`${label} merchant "${item.merchant}" is not in the allowed merchant list.`);
     }

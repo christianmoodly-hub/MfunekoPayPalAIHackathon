@@ -57,7 +57,7 @@ export async function parseMandate(
     if (parsed.ok) {
       return mandateSchema.parse({
         ...parsed.value,
-        id: (options.createId ?? crypto.randomUUID)(),
+        id: options.createId?.() ?? crypto.randomUUID(),
         description: text,
         status: "draft",
         expiresAt: defaultExpiresAt(options.now ?? new Date()),

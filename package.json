@@ -12,7 +12,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "hello-order": "node --env-file=.env --import tsx scripts/hello-order.ts",
-    "parse-mandate": "node --env-file=.env --import tsx scripts/parse-mandate.ts"
+    "parse-mandate": "node --env-file=.env --import tsx scripts/parse-mandate.ts",
+    "shop": "node --env-file=.env --import tsx scripts/shop.ts",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

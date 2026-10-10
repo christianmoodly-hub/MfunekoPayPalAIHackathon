@@ -90,3 +90,35 @@ npm run parse-mandate -- "buy office supplies under 50 dollars"
 ```
 
 The script needs `DATABASE_URL`, `GEMINI_API_KEY`, and `GEMINI_MODEL`. It saves a draft mandate and writes `mandate.parse_requested` and `mandate.parsed`. A failed parse writes `mandate.parse_failed`. Confirming a draft in the app writes `mandate.confirmed` and sets status to `active`.
+
+## Channel3 search
+
+Checked 2026-10-10.
+
+- Search API (OpenAPI for `POST /v1/search`): https://docs.trychannel3.com/api-reference/v1/search
+- Search response guide: https://docs.trychannel3.com/guides/response-overview
+- Product guide: https://docs.trychannel3.com/guides/product
+- Offer guide: https://docs.trychannel3.com/guides/offer
+- Product detail: https://docs.trychannel3.com/api-reference/v1/product-detail
+- Make a search: https://docs.trychannel3.com/guides/make-a-search
+
+Base URL is `https://api.trychannel3.com`. Search is `POST /v1/search` with header `x-api-key`. The client asks for `config.currency=USD`, `country=US`, and `language=en`, and limits the page to 10 products.
+
+The OpenAPI `Product` requires `id` and `title`. Optional fields used here are `description`, `brands` (`id`, `name`), `category` (`slug`, `title`, `has_children`), and `offers`.
+
+The OpenAPI `ProductOffer` requires `url`, `domain`, `price`, and `availability` (`InStock` or `OutOfStock`). `Price` requires `price` (number, current amount in major units) and `currency`. `compare_at_price` is optional. The offer guide's JSON example uses `price.amount` instead of `price.price`. The client follows the OpenAPI schema and rejects the `amount` shape.
+
+What the docs show for the fields this app needs:
+
+- Price and currency: yes, on the offer, as `price.price` and `price.currency`. Not on the product.
+- Merchant name: no name field on the offer. The stable merchant value on the offer is `domain`. `brands[].name` is the product brand, not the retailer. Search filters accept website ids or domains, but the offer object does not return a website id.
+- Stable product id: yes, `product.id`.
+- Category: yes, optional `category.slug` and `category.title`. The category can be null.
+- Return policy: no field on the product or the offer. The commissions FAQ mentions a retailer return window for payouts, which is not a free-returns flag.
+- Shipping or delivery estimate: no field. `dimensions` is physical size and weight, not a delivery date.
+
+`src/lib/shopping` therefore sets `freeReturns` to false and `deliveryDate` to null. Merchant allow and block lists are compared to the normalized offer domain, including a leading `www.`. Prior spend is the sum of `paypal.order.captured` ledger amounts for the mandate. Gemini ranking returns only `productId`, `quantity`, and `reasoning`.
+
+```bash
+npm run shop -- <mandateId> "office paper"
+```

@@ -214,13 +214,9 @@ export function MandateForm() {
               onChange={(event) => update(setFields, "deliverBy", event.target.value)}
             />
           </Field>
-          <Field label="Expires at (ISO timestamp)">
-            <input
-              className="rounded-lg border border-border bg-background px-3 py-2"
-              value={fields.expiresAt}
-              onChange={(event) => update(setFields, "expiresAt", event.target.value)}
-            />
-          </Field>
+          <p className="text-sm">
+            Expires at {fields.expiresAt}. Confirm cannot change the expiry.
+          </p>
           <div>
             <Button type="submit" disabled={pending !== null || status === "active"}>
               {pending === "confirm" ? "Confirming…" : status === "active" ? "Confirmed" : "Confirm"}
@@ -276,7 +272,6 @@ function editsFromFields(fields: DraftFields) {
     requireFreeReturns: fields.requireFreeReturns,
     deliverBy: fields.deliverBy.trim() === "" ? null : fields.deliverBy.trim(),
     escalateAboveCents: Number(fields.escalateAboveCents),
-    expiresAt: fields.expiresAt.trim(),
   };
 }
 

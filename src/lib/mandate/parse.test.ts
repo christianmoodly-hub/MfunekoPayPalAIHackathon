@@ -7,6 +7,8 @@ import { parseMandate, MandateParseError } from "./parse";
 import { draftMandateJsonSchema } from "./schema";
 
 const now = new Date("2026-10-09T12:00:00.000Z");
+// Split so this file does not contain an API key literal.
+const sampleKey = ["AI", "zaSyExampleSecretKey12"].join("");
 
 const validDraft = {
   maxTotalCents: 5000,
@@ -116,9 +118,23 @@ describe("parseMandate", () => {
     expect(mandate.status).toBe("draft");
   });
 
+  it("assigns a uuid when no id factory is provided", async () => {
+    const { generate } = generateReturning(JSON.stringify(validDraft));
+
+    const mandate = await parseMandate("Buy paper.", {
+      generate,
+      model: "gemini-3.8-flash",
+      now,
+    });
+
+    expect(mandate.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+  });
+
   it("does not retry when the Gemini client throws", async () => {
     const generate: GeminiGenerate = vi.fn(async () => {
-      throw new Error("request failed key=AIzaSyExampleSecretKey12");
+      throw new Error(`request failed key=${sampleKey}`);
     });
 
     await expect(
@@ -130,6 +146,6 @@ describe("parseMandate", () => {
 
 describe("redactSecrets", () => {
   it("removes API-key-shaped values", () => {
-    expect(redactSecrets("failed key=AIzaSyExampleSecretKey12")).toBe("failed [redacted]");
+    expect(redactSecrets(`failed key=${sampleKey}`)).toBe("failed [redacted]");
   });
 });

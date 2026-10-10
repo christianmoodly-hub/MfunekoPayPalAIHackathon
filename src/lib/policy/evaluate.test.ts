@@ -261,6 +261,20 @@ describe("policy engine", () => {
     expect(decision.reasons).toContain('Item 1 merchant "Blocked Mart" is blocked.');
   });
 
+  it("matches a merchant domain with or without a leading www", () => {
+    const blocked = decide(
+      { lineItems: [item({ merchant: "www.BlockedMart.com" })] },
+      { mandate: { blockedMerchants: ["blockedmart.com"] } },
+    );
+    const allowed = decide(
+      { lineItems: [item({ merchant: "Shop.Example" })] },
+      { mandate: { allowedMerchants: ["www.shop.example"] } },
+    );
+
+    expect(blocked.verdict).toBe("BLOCK");
+    expect(allowed.verdict).toBe("APPROVE");
+  });
+
   it("blocks a merchant that is absent from a non-empty allow list", () => {
     const decision = decide(
       { lineItems: [item({ merchant: "Other Store" })] },

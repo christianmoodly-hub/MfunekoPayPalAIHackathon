@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { centsToUsd, usdToCents } from "./money";
+import { centsToUsd, majorUnitsToCents, usdToCents } from "./money";
 
 describe("money", () => {
   it("converts a two-decimal USD string to integer cents", () => {
@@ -12,6 +12,13 @@ describe("money", () => {
   it("rejects values that are not exact cents", () => {
     expect(() => usdToCents("5")).toThrow(/two fraction digits/);
     expect(() => usdToCents("5.001")).toThrow(/two fraction digits/);
+  });
+
+  it("converts a major-unit number to cents only when it is an exact cent", () => {
+    expect(majorUnitsToCents(19.99)).toBe(1999);
+    expect(majorUnitsToCents(0.29)).toBe(29);
+    expect(majorUnitsToCents(1.234)).toBeNull();
+    expect(majorUnitsToCents(-1)).toBeNull();
   });
 
   it("formats integer cents as a USD decimal", () => {

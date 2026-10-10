@@ -1,4 +1,5 @@
 export { evaluatePolicy, type PolicyDecision, type PolicyVerdict } from "./evaluate";
+export { normalizeMerchant } from "./merchants";
 export {
   lineItemSchema,
   mandateSchema,

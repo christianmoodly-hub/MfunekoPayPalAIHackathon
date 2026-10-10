@@ -2,8 +2,6 @@ import { z } from "zod";
 
 import { mandateSchema, mandateStatusSchema } from "@/lib/policy/schema";
 
-const timestamp = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
-
 export const draftMandateSchema = mandateSchema.omit({
   id: true,
   description: true,
@@ -11,10 +9,20 @@ export const draftMandateSchema = mandateSchema.omit({
   expiresAt: true,
 });
 
-export const mandateEditsSchema = draftMandateSchema.extend({
-  description: z.string().trim().min(1),
-  expiresAt: timestamp,
-});
+export const mandateEditsSchema = draftMandateSchema
+  .extend({
+    description: z.string().trim().min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.escalateAboveCents > value.maxTotalCents) {
+      ctx.addIssue({
+        code: "custom",
+        message: "escalateAboveCents cannot exceed maxTotalCents.",
+        path: ["escalateAboveCents"],
+      });
+    }
+  });
 
 export const parseRequestSchema = z.object({
   text: z.string(),

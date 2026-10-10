@@ -40,6 +40,7 @@ export async function confirmMandate(id: string, edits: unknown): Promise<Mandat
     ...parsedEdits.data,
     id,
     status: "active",
+    expiresAt: existing.expiresAt,
   });
   const db = getDb();
   const [row] = await db
@@ -55,7 +56,7 @@ export async function confirmMandate(id: string, edits: unknown): Promise<Mandat
   return fromRow(row);
 }
 
-async function getMandate(id: string): Promise<Mandate | null> {
+export async function getMandate(id: string): Promise<Mandate | null> {
   const db = getDb();
   const [row] = await db.select().from(mandates).where(eq(mandates.id, id)).limit(1);
   return row ? fromRow(row) : null;
