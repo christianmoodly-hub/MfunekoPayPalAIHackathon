@@ -1,10 +1,10 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import { approvals } from "@/db/schema";
 import type { LedgerEventInput } from "@/lib/ledger/schema";
 import { getMandate } from "@/lib/mandate/store";
-import { approvalUrl, type PayPalOrder } from "@/lib/paypal/schema";
+import { approvalUrl, paypalOrderSchema, type PayPalOrder } from "@/lib/paypal/schema";
 import { evaluatePolicy, type PolicyVerdict } from "@/lib/policy";
 import { proposedPurchaseSchema, type LineItem, type Mandate, type ProposedPurchase } from "@/lib/policy/schema";
 
@@ -12,6 +12,7 @@ import type { SpendEvent } from "./accounting";
 import { openSpendCents } from "./accounting";
 import { assertPayPalCharge, assertPayPalOrderAmount } from "./amounts";
 import { loadMandateSpendEvents } from "./run";
+import { isDefinitivePayPalRejection, settleUncertainCharge } from "./settle";
 
 export type StoredApproval = {
   id: string;
@@ -19,11 +20,13 @@ export type StoredApproval = {
   purchase: ProposedPurchase;
   productIds: string[];
   reasons: string[];
-  status: "pending" | "ordered" | "blocked" | "expired" | "captured";
+  status: "pending" | "ordering" | "ordered" | "blocked" | "expired" | "captured";
   orderId: string | null;
   reservationId: string | null;
   expectedCents: number;
   expiresAt: string;
+  orderedAt?: string | null;
+  capturedOrder?: PayPalOrder | null;
 };
 
 export type ApprovalResult = {
@@ -45,9 +48,10 @@ type BuyerOrderInput = {
 export type ApprovalDeps = {
   now: Date;
   loadApproval: (id: string) => Promise<StoredApproval | null>;
+  claimApproval: (id: string) => Promise<StoredApproval | null>;
   saveApproval: (approval: StoredApproval) => Promise<void>;
   loadMandate: (id: string) => Promise<Mandate | null>;
-  refetchPrice: (productId: string) => Promise<number>;
+  refetchPrice: (productId: string, domain: string) => Promise<number>;
   loadEvents: (mandateId: string) => Promise<SpendEvent[]>;
   reserve: (input: { mandateId: string; amountCents: number; capCents: number; reservationId: string }) => Promise<void>;
   release: (input: { mandateId: string; reservationId: string }) => Promise<void>;
@@ -120,6 +124,11 @@ export async function approveEscalation(
     };
   }
 
+  const claimed = await deps.claimApproval(approvalId);
+  if (!claimed) {
+    throw new Error("Approval is not pending.");
+  }
+
   const expectedCents = payableCents(purchase);
   const reservationId = deps.createId?.() ?? crypto.randomUUID();
   await deps.reserve({
@@ -129,11 +138,13 @@ export async function approveEscalation(
     reservationId,
   });
 
+  const requestKey = `approval:${approvalId}`;
+  let order: PayPalOrder | undefined;
   try {
-    const order = await deps.createBuyerOrder({
+    order = await deps.createBuyerOrder({
       lineItems: purchase.lineItems,
       mandateId: approval.mandateId,
-      idempotencyKey: `approval:${approvalId}`,
+      idempotencyKey: requestKey,
     });
     assertPayPalOrderAmount(order, expectedCents);
     const url = approvalUrl(order);
@@ -148,6 +159,7 @@ export async function approveEscalation(
       orderId: order.id,
       reservationId,
       expectedCents,
+      orderedAt: deps.now.toISOString(),
     });
     await deps.appendLedger({
       type: "paypal.order.created",
@@ -170,18 +182,18 @@ export async function approveEscalation(
       approvalUrl: url,
     };
   } catch (error) {
-    await deps.release({ mandateId: approval.mandateId, reservationId });
-    await deps
-      .appendLedger({
-        type: "paypal.order.failed",
-        mandateId: approval.mandateId,
-        payload: {
-          approvalId,
-          reservationId,
-          message: error instanceof Error ? error.message : "PayPal order failed.",
-        },
-      })
-      .catch(() => undefined);
+    await settleUncertainCharge({
+      error,
+      order,
+      mandateId: approval.mandateId,
+      reservationId,
+      requestKey,
+      release: () => deps.release({ mandateId: approval.mandateId, reservationId }),
+      appendLedger: deps.appendLedger,
+    });
+    if (isDefinitivePayPalRejection(error)) {
+      await deps.saveApproval({ ...approval, status: "pending", reservationId: null });
+    }
     throw error;
   }
 }
@@ -192,23 +204,60 @@ export async function captureAfterApproval(
 ): Promise<PayPalOrder> {
   const deps = await resolveDeps(overrides);
   const approval = await deps.loadApproval(approvalId);
-  if (!approval?.orderId) {
+  if (!approval) {
+    throw new Error("Approval was not found.");
+  }
+  if (approval.status === "captured") {
+    if (approval.capturedOrder) {
+      return approval.capturedOrder;
+    }
+    if (!approval.orderId) {
+      throw new Error("Approval has no PayPal order.");
+    }
+    return deps.getBuyerOrder(approval.orderId);
+  }
+  if (approval.status !== "ordered") {
+    throw new Error("Approval is not ordered.");
+  }
+  if (!approval.orderId || !approval.reservationId) {
     throw new Error("Approval has no PayPal order.");
   }
 
-  const existing = await deps.getBuyerOrder(approval.orderId);
+  const requestKey = `approval:capture:${approval.orderId}`;
+  let existing: PayPalOrder | undefined;
   try {
+    existing = await deps.getBuyerOrder(approval.orderId);
     assertPayPalOrderAmount(existing, approval.expectedCents);
   } catch (error) {
-    await releaseAndFail(deps, approval, error);
+    await settleUncertainCharge({
+      error,
+      order: existing,
+      mandateId: approval.mandateId,
+      reservationId: approval.reservationId,
+      requestKey,
+      release: () => deps.release({ mandateId: approval.mandateId, reservationId: approval.reservationId ?? "" }),
+      appendLedger: deps.appendLedger,
+    });
     throw error;
   }
 
-  const captured = await deps.captureBuyerOrder(approval.orderId);
+  let captured: PayPalOrder | undefined;
   try {
+    captured = await deps.captureBuyerOrder(approval.orderId);
     assertPayPalCharge(captured, approval.expectedCents);
   } catch (error) {
-    await releaseAndFail(deps, approval, error);
+    await settleUncertainCharge({
+      error,
+      order: captured,
+      mandateId: approval.mandateId,
+      reservationId: approval.reservationId,
+      requestKey,
+      release: () => deps.release({ mandateId: approval.mandateId, reservationId: approval.reservationId ?? "" }),
+      appendLedger: deps.appendLedger,
+    });
+    if (captured) {
+      await deps.saveApproval({ ...approval, status: "captured", capturedOrder: captured });
+    }
     throw error;
   }
 
@@ -227,7 +276,7 @@ export async function captureAfterApproval(
         : null,
     },
   });
-  await deps.saveApproval({ ...approval, status: "captured" });
+  await deps.saveApproval({ ...approval, status: "captured", capturedOrder: captured });
   return captured;
 }
 
@@ -247,6 +296,33 @@ export async function loadApprovalRecord(id: string): Promise<StoredApproval | n
     reservationId: row.reservationId,
     expectedCents: row.expectedCents,
     expiresAt: row.expiresAt.toISOString(),
+    orderedAt: row.orderedAt ? row.orderedAt.toISOString() : null,
+    capturedOrder: capturedOrderFrom(row.capturedOrder),
+  };
+}
+
+export async function claimApprovalRecord(id: string): Promise<StoredApproval | null> {
+  const [row] = await getDb()
+    .update(approvals)
+    .set({ status: "ordering" })
+    .where(and(eq(approvals.id, id), eq(approvals.status, "pending")))
+    .returning();
+  if (!row) {
+    return null;
+  }
+  return {
+    id: row.id,
+    mandateId: row.mandateId,
+    purchase: proposedPurchaseSchema.parse(row.purchase),
+    productIds: row.productIds,
+    reasons: row.reasons,
+    status: "ordering",
+    orderId: row.orderId,
+    reservationId: row.reservationId,
+    expectedCents: row.expectedCents,
+    expiresAt: row.expiresAt.toISOString(),
+    orderedAt: row.orderedAt ? row.orderedAt.toISOString() : null,
+    capturedOrder: capturedOrderFrom(row.capturedOrder),
   };
 }
 
@@ -262,6 +338,8 @@ export async function saveApprovalRecord(approval: StoredApproval): Promise<void
     reservationId: approval.reservationId,
     expectedCents: approval.expectedCents,
     expiresAt: new Date(approval.expiresAt),
+    orderedAt: approval.orderedAt ? new Date(approval.orderedAt) : null,
+    capturedOrder: (approval.capturedOrder ?? null) as Record<string, unknown> | null,
   };
   const db = getDb();
   const [existing] = await db.select({ id: approvals.id }).from(approvals).where(eq(approvals.id, approval.id)).limit(1);
@@ -289,9 +367,10 @@ async function resolveDeps(overrides: Partial<ApprovalDeps>): Promise<ApprovalDe
   const defaults: ApprovalDeps = {
     now: new Date(),
     loadApproval: loadApprovalRecord,
+    claimApproval: claimApprovalRecord,
     saveApproval: saveApprovalRecord,
     loadMandate: getMandate,
-    refetchPrice: (productId) => refetchPrice(productId, readChannel3Env()),
+    refetchPrice: (productId, domain) => refetchPrice(productId, domain, readChannel3Env()),
     loadEvents: loadMandateSpendEvents,
     reserve: reserveSpendInDb,
     release: releaseSpendInDb,
@@ -317,6 +396,7 @@ function isComplete(overrides: Partial<ApprovalDeps>): overrides is ApprovalDeps
   return Boolean(
     overrides.now &&
       overrides.loadApproval &&
+      overrides.claimApproval &&
       overrides.saveApproval &&
       overrides.loadMandate &&
       overrides.refetchPrice &&
@@ -332,7 +412,7 @@ function isComplete(overrides: Partial<ApprovalDeps>): overrides is ApprovalDeps
 
 async function refreshPurchase(
   approval: StoredApproval,
-  refetchPrice: (productId: string) => Promise<number>,
+  refetchPrice: (productId: string, domain: string) => Promise<number>,
 ): Promise<ProposedPurchase> {
   const lineItems = await Promise.all(
     approval.purchase.lineItems.map(async (item, index) => {
@@ -340,7 +420,7 @@ async function refreshPurchase(
       if (!productId) {
         throw new Error("Approval snapshot is missing a product.");
       }
-      return { ...item, checkoutUnitPriceCents: await refetchPrice(productId) };
+      return { ...item, checkoutUnitPriceCents: await refetchPrice(productId, item.merchant) };
     }),
   );
   return { ...approval.purchase, lineItems };
@@ -358,27 +438,15 @@ function payableCents(purchase: ProposedPurchase): number {
   return total;
 }
 
+function capturedOrderFrom(value: unknown): PayPalOrder | null {
+  const parsed = paypalOrderSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
 function orderAmount(order: PayPalOrder): { currencyCode: string; value: string } | null {
   const amount = order.purchase_units?.[0]?.amount;
   if (!amount) {
     return null;
   }
   return { currencyCode: amount.currency_code, value: amount.value };
-}
-
-async function releaseAndFail(deps: ApprovalDeps, approval: StoredApproval, error: unknown) {
-  if (approval.reservationId) {
-    await deps.release({ mandateId: approval.mandateId, reservationId: approval.reservationId });
-  }
-  await deps
-    .appendLedger({
-      type: "paypal.order.failed",
-      mandateId: approval.mandateId,
-      payload: {
-        approvalId: approval.id,
-        orderId: approval.orderId,
-        message: error instanceof Error ? error.message : "PayPal amount mismatch.",
-      },
-    })
-    .catch(() => undefined);
 }

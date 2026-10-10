@@ -34,7 +34,7 @@ export async function checkoutSavedPurchase(input: CheckoutInput): Promise<Check
   const { apiKey } = readChannel3Env();
 
   return guardedCheckout(input, {
-    refetchPrice: (productId) => refetchPrice(productId, { apiKey }),
+    refetchPrice: (productId, domain) => refetchPrice(productId, domain, { apiKey }),
     loadEvents: loadMandateSpendEvents,
     reserve: reserveSpendInDb,
     release: releaseSpendInDb,

@@ -1,4 +1,5 @@
 import { majorUnitsToCents } from "@/lib/money";
+import { normalizeMerchant } from "@/lib/policy/merchants";
 
 import { Channel3ApiError } from "./client";
 import { channel3ProductSchema, type Channel3Offer } from "./schema";
@@ -6,16 +7,22 @@ import { channel3ProductSchema, type Channel3Offer } from "./schema";
 // Product lookup: GET /v1/products/{product_id}
 // https://docs.trychannel3.com/api-reference/v1/product-detail
 // https://docs.trychannel3.com/guides/product-detail
-// Checkout calls this and passes the result to policy as checkoutUnitPriceCents.
+// Checkout calls this for the selected merchant and passes that offer's price
+// to policy as checkoutUnitPriceCents.
 const PRODUCT_DETAIL_URL = "https://api.trychannel3.com/v1/products";
 
 export async function refetchPrice(
   productId: string,
+  domain: string,
   options: { apiKey: string; fetchImpl?: typeof fetch },
 ): Promise<number> {
   const id = productId.trim();
+  const merchant = normalizeMerchant(domain);
   if (!id) {
     throw new Channel3ApiError(400, "Product id is required.");
+  }
+  if (!merchant) {
+    throw new Channel3ApiError(400, "Selected merchant is missing.");
   }
 
   const url = new URL(`${PRODUCT_DETAIL_URL}/${encodeURIComponent(id)}`);
@@ -54,16 +61,27 @@ export async function refetchPrice(
     throw new Channel3ApiError(200, "Channel3 product lookup response did not match the schema.");
   }
 
-  const cents = lowestInStockUsdCents(parsed.data.offers ?? []);
+  const cents = merchantUsdCents(parsed.data.offers ?? [], merchant);
   if (cents === null) {
-    throw new Channel3ApiError(200, "Channel3 product has no in-stock USD price.");
+    const known = (parsed.data.offers ?? []).some((offer) => normalizeMerchant(offer.domain) === merchant);
+    throw new Channel3ApiError(
+      200,
+      known
+        ? `Selected merchant ${merchant} is out of stock.`
+        : `Selected merchant ${merchant} is missing.`,
+    );
   }
   return cents;
 }
 
-function lowestInStockUsdCents(offers: Channel3Offer[]): number | null {
+function merchantUsdCents(offers: Channel3Offer[], merchant: string): number | null {
   const prices = offers
-    .filter((offer) => offer.availability === "InStock" && offer.price.currency === "USD")
+    .filter(
+      (offer) =>
+        normalizeMerchant(offer.domain) === merchant &&
+        offer.availability === "InStock" &&
+        offer.price.currency === "USD",
+    )
     .map((offer) => majorUnitsToCents(offer.price.price))
     .filter((cents): cents is number => cents !== null)
     .sort((left, right) => left - right);

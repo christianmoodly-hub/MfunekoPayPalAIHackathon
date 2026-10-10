@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { getDb } from "@/db/client";
 import { ledgerEvents } from "@/db/schema";
+import { releaseExpiredOrderHolds } from "@/lib/checkout/holds";
 import { usdToCents } from "@/lib/money";
 
 const capturedAmountSchema = z.object({
@@ -46,6 +47,7 @@ export function spentCentsFromPayloads(payloads: unknown[]): number {
 }
 
 export async function spentCentsForMandate(mandateId: string): Promise<number> {
+  await releaseExpiredOrderHolds(mandateId);
   const db = getDb();
   const rows = await db
     .select({ payload: ledgerEvents.payload })

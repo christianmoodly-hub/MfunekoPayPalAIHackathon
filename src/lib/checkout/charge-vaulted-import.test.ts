@@ -35,4 +35,21 @@ describe("chargeVaulted imports", () => {
 
     expect(offenders).toEqual([]);
   });
+
+  it("imports operatorChargeVaulted only from scripts", () => {
+    const root = process.cwd();
+    const offenders: string[] = [];
+    for (const file of [...sourceFiles(path.join(root, "src")), ...sourceFiles(path.join(root, "scripts"))]) {
+      const normalized = file.split(path.sep).join("/");
+      if (normalized.includes("/scripts/")) {
+        continue;
+      }
+      const source = readFileSync(file, "utf8");
+      if (/import\s*\{[^}]*\boperatorChargeVaulted\b/.test(source)) {
+        offenders.push(normalized.slice(normalized.indexOf("src/")));
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
 });

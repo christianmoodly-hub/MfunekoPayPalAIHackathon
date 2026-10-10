@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { PayPalApiError } from "@/lib/paypal/client";
 import type { PayPalOrder } from "@/lib/paypal/schema";
 import type { Mandate, ProposedPurchase } from "@/lib/policy/schema";
 import type { LedgerEventInput } from "@/lib/ledger/schema";
@@ -177,7 +178,7 @@ describe("guardedCheckout", () => {
     expect(charge).not.toHaveBeenCalled();
   });
 
-  it("releases the reservation when PayPal's amount does not match", async () => {
+  it("records a mismatched capture and keeps the hold for reconciliation", async () => {
     const ledger = memoryLedger();
 
     await expect(
@@ -200,8 +201,80 @@ describe("guardedCheckout", () => {
       ),
     ).rejects.toBeInstanceOf(CheckoutAmountError);
 
-    expect(ledger.events.some((event) => event.type === "paypal.order.captured")).toBe(false);
-    expect(openSpendCents(ledger.events, mandate.id)).toBe(0);
+    expect(ledger.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "paypal.order.captured",
+          payload: expect.objectContaining({ amount: { currencyCode: "USD", value: "6.01" } }),
+        }),
+        expect.objectContaining({
+          type: "checkout.needs_reconciliation",
+          payload: expect.objectContaining({ reservationId: "reservation-1", orderId: "ORDER1" }),
+        }),
+      ]),
+    );
+    expect(ledger.events.some((event) => event.type === "checkout.released")).toBe(false);
+    expect(openSpendCents(ledger.events, mandate.id)).toBe(601);
+  });
+
+  it("blocks when the selected merchant is out of stock", async () => {
+    const ledger = memoryLedger();
+    const charge = vi.fn(async () => completedOrder("6.00"));
+
+    const result = await guardedCheckout(
+      {
+        mandate,
+        purchase: purchase(600),
+        productIds: ["paper-1"],
+        checkedAt: "2026-10-10T12:00:00.000Z",
+      },
+      {
+        refetchPrice: async () => {
+          throw new Error("Selected merchant staples.com is out of stock.");
+        },
+        loadEvents: ledger.loadEvents,
+        reserve: ledger.reserve,
+        release: ledger.release,
+        appendLedger: ledger.appendLedger,
+        charge,
+      },
+    );
+
+    expect(result.verdict).toBe("BLOCK");
+    expect(result.reasons.join(" ")).toMatch(/out of stock/);
+    expect(charge).not.toHaveBeenCalled();
+    expect(ledger.events.some((event) => event.type === "checkout.reserved")).toBe(false);
+  });
+
+  it("blocks on the selected merchant's higher price when another merchant is cheaper", async () => {
+    const ledger = memoryLedger();
+    const charge = vi.fn(async () => completedOrder("7.00"));
+    const domains: string[] = [];
+
+    const result = await guardedCheckout(
+      {
+        mandate,
+        purchase: purchase(600),
+        productIds: ["paper-1"],
+        checkedAt: "2026-10-10T12:00:00.000Z",
+      },
+      {
+        refetchPrice: async (_productId, domain) => {
+          domains.push(domain);
+          return domain === "staples.com" ? 700 : 100;
+        },
+        loadEvents: ledger.loadEvents,
+        reserve: ledger.reserve,
+        release: ledger.release,
+        appendLedger: ledger.appendLedger,
+        charge,
+      },
+    );
+
+    expect(domains).toEqual(["staples.com"]);
+    expect(result.verdict).toBe("BLOCK");
+    expect(result.reasons.join(" ")).toMatch(/700 cents/);
+    expect(charge).not.toHaveBeenCalled();
   });
 
   it("lets only one of two overlapping checkouts reserve the remaining cap", async () => {
@@ -235,7 +308,36 @@ describe("guardedCheckout", () => {
     expect(charge).toHaveBeenCalledTimes(1);
   });
 
-  it("releases the reservation when PayPal throws", async () => {
+  it("releases the reservation only when PayPal rejects the request", async () => {
+    const ledger = memoryLedger();
+
+    await expect(
+      guardedCheckout(
+        {
+          mandate,
+          purchase: purchase(600),
+          productIds: ["paper-1"],
+          checkedAt: "2026-10-10T12:00:00.000Z",
+        },
+        {
+          refetchPrice: async () => 600,
+          loadEvents: ledger.loadEvents,
+          reserve: ledger.reserve,
+          release: ledger.release,
+          appendLedger: ledger.appendLedger,
+          createId: () => "reservation-rejected",
+          charge: async () => {
+            throw new PayPalApiError(422, { message: "The instrument was declined." });
+          },
+        },
+      ),
+    ).rejects.toThrow(/declined/);
+
+    expect(ledger.events.some((event) => event.type === "checkout.released")).toBe(true);
+    expect(openSpendCents(ledger.events, mandate.id)).toBe(0);
+  });
+
+  it("keeps the reservation when PayPal times out", async () => {
     const ledger = memoryLedger();
 
     await expect(
@@ -261,7 +363,86 @@ describe("guardedCheckout", () => {
     ).rejects.toThrow(/paypal down/);
 
     expect(ledger.events.some((event) => event.type === "paypal.order.captured")).toBe(false);
-    expect(openSpendCents(ledger.events, mandate.id)).toBe(0);
+    expect(ledger.events.some((event) => event.type === "checkout.released")).toBe(false);
+    expect(ledger.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "checkout.needs_reconciliation",
+          payload: expect.objectContaining({ reservationId: "reservation-fail", requestKey: "checkout:reservation-fail" }),
+        }),
+      ]),
+    );
+    expect(openSpendCents(ledger.events, mandate.id)).toBe(600);
+  });
+
+  it("keeps the reservation when PayPal returns HTTP 500", async () => {
+    const ledger = memoryLedger();
+
+    await expect(
+      guardedCheckout(
+        {
+          mandate,
+          purchase: purchase(600),
+          productIds: ["paper-1"],
+          checkedAt: "2026-10-10T12:00:00.000Z",
+        },
+        {
+          refetchPrice: async () => 600,
+          loadEvents: ledger.loadEvents,
+          reserve: ledger.reserve,
+          release: ledger.release,
+          appendLedger: ledger.appendLedger,
+          createId: () => "reservation-500",
+          charge: async () => {
+            throw new PayPalApiError(503, { message: "unavailable" });
+          },
+        },
+      ),
+    ).rejects.toThrow(/unavailable/);
+
+    expect(ledger.events.some((event) => event.type === "checkout.released")).toBe(false);
+    expect(ledger.events.some((event) => event.type === "checkout.needs_reconciliation")).toBe(true);
+    expect(openSpendCents(ledger.events, mandate.id)).toBe(600);
+  });
+
+  it("keeps the reservation when PayPal returns an unexpected status", async () => {
+    const ledger = memoryLedger();
+
+    await expect(
+      guardedCheckout(
+        {
+          mandate,
+          purchase: purchase(600),
+          productIds: ["paper-1"],
+          checkedAt: "2026-10-10T12:00:00.000Z",
+        },
+        {
+          refetchPrice: async () => 600,
+          loadEvents: ledger.loadEvents,
+          reserve: ledger.reserve,
+          release: ledger.release,
+          appendLedger: ledger.appendLedger,
+          createId: () => "reservation-status",
+          charge: async () => ({
+            id: "ORDER9",
+            status: "PAYER_ACTION_REQUIRED",
+            purchase_units: [{ amount: { currency_code: "USD", value: "6.00" } }],
+          }),
+        },
+      ),
+    ).rejects.toBeInstanceOf(CheckoutAmountError);
+
+    expect(ledger.events.some((event) => event.type === "paypal.order.captured")).toBe(false);
+    expect(ledger.events.some((event) => event.type === "checkout.released")).toBe(false);
+    expect(ledger.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "checkout.needs_reconciliation",
+          payload: expect.objectContaining({ reservationId: "reservation-status", orderId: "ORDER9" }),
+        }),
+      ]),
+    );
+    expect(openSpendCents(ledger.events, mandate.id)).toBe(600);
   });
 
   it("stores an escalation and does not create an order", async () => {

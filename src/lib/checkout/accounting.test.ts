@@ -51,4 +51,26 @@ describe("openSpendCents", () => {
 
     expect(openSpendCents(events, mandateId)).toBe(0);
   });
+
+  it("counts each captured order id once", () => {
+    const events: SpendEvent[] = [
+      {
+        type: "checkout.reserved",
+        mandateId,
+        payload: { reservationId: "r1", amountCents: 400 },
+      },
+      {
+        type: "paypal.order.captured",
+        mandateId,
+        payload: { orderId: "ORDER1", reservationId: "r1", amount: { currencyCode: "USD", value: "4.00" } },
+      },
+      {
+        type: "paypal.order.captured",
+        mandateId,
+        payload: { orderId: "ORDER1", reservationId: "r1", amount: { currencyCode: "USD", value: "4.00" } },
+      },
+    ];
+
+    expect(openSpendCents(events, mandateId)).toBe(400);
+  });
 });

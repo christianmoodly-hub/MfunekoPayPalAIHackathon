@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { operatorChargeVaulted } from "./operator";
+import { operatorChargeVaulted } from "../src/lib/checkout/operator";
 
 describe("operatorChargeVaulted", () => {
   it("refuses to run when NODE_ENV is production", async () => {

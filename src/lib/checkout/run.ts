@@ -11,7 +11,9 @@ import type { SpendEvent } from "./accounting";
 import { openSpendCents } from "./accounting";
 import { assertPayPalCharge } from "./amounts";
 import type { StoredApproval } from "./approval";
+import { releaseExpiredOrderHolds } from "./holds";
 import { SpendReserveError } from "./reserve";
+import { settleUncertainCharge } from "./settle";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -33,7 +35,7 @@ export type CheckoutResult = {
 };
 
 export type CheckoutDeps = {
-  refetchPrice: (productId: string) => Promise<number>;
+  refetchPrice: (productId: string, domain: string) => Promise<number>;
   loadEvents: (mandateId: string) => Promise<SpendEvent[]>;
   reserve: (input: { mandateId: string; amountCents: number; capCents: number; reservationId: string }) => Promise<void>;
   release: (input: { mandateId: string; reservationId: string }) => Promise<void>;
@@ -45,7 +47,18 @@ export type CheckoutDeps = {
 };
 
 export async function guardedCheckout(input: CheckoutInput, deps: CheckoutDeps): Promise<CheckoutResult> {
-  const purchase = await withCheckoutPrices(input, deps.refetchPrice);
+  let purchase: ProposedPurchase;
+  try {
+    purchase = await withCheckoutPrices(input, deps.refetchPrice);
+  } catch (error) {
+    const reasons = [error instanceof Error ? error.message : "Price check failed."];
+    await deps.appendLedger({
+      type: "checkout.blocked",
+      mandateId: input.mandate.id,
+      payload: { reasons, purchase: input.purchase },
+    });
+    return outcome("BLOCK", reasons, input.purchase, null, null, null, null);
+  }
   const events = await deps.loadEvents(input.mandate.id);
   const spentCents = openSpendCents(events, input.mandate.id);
   const decision = evaluatePolicy({
@@ -111,22 +124,20 @@ export async function guardedCheckout(input: CheckoutInput, deps: CheckoutDeps):
     throw error;
   }
 
-  let order: PayPalOrder;
+  let order: PayPalOrder | undefined;
   try {
     order = await deps.charge(purchase.lineItems, `checkout:${reservationId}`);
     assertPayPalCharge(order, expectedCents);
   } catch (error) {
-    await deps.release({ mandateId: input.mandate.id, reservationId });
-    await deps
-      .appendLedger({
-        type: "paypal.order.failed",
-        mandateId: input.mandate.id,
-        payload: {
-          reservationId,
-          message: error instanceof Error ? error.message : "PayPal charge failed.",
-        },
-      })
-      .catch(() => undefined);
+    await settleUncertainCharge({
+      error,
+      order,
+      mandateId: input.mandate.id,
+      reservationId,
+      requestKey: `checkout:${reservationId}`,
+      release: () => deps.release({ mandateId: input.mandate.id, reservationId }),
+      appendLedger: deps.appendLedger,
+    });
     throw error;
   }
 
@@ -150,6 +161,7 @@ export async function guardedCheckout(input: CheckoutInput, deps: CheckoutDeps):
 }
 
 export async function loadMandateSpendEvents(mandateId: string): Promise<SpendEvent[]> {
+  await releaseExpiredOrderHolds(mandateId);
   const rows = await getDb()
     .select({
       type: ledgerEvents.type,
@@ -163,7 +175,7 @@ export async function loadMandateSpendEvents(mandateId: string): Promise<SpendEv
 
 async function withCheckoutPrices(
   input: CheckoutInput,
-  refetchPrice: (productId: string) => Promise<number>,
+  refetchPrice: (productId: string, domain: string) => Promise<number>,
 ): Promise<ProposedPurchase> {
   const lineItems = await Promise.all(
     input.purchase.lineItems.map(async (item, index) => {
@@ -171,7 +183,7 @@ async function withCheckoutPrices(
       if (!productId) {
         throw new Error("Checkout is missing a product id.");
       }
-      return { ...item, checkoutUnitPriceCents: await refetchPrice(productId) };
+      return { ...item, checkoutUnitPriceCents: await refetchPrice(productId, item.merchant) };
     }),
   );
   return { ...input.purchase, lineItems };

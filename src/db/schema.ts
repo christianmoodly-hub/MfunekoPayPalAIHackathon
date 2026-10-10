@@ -45,5 +45,7 @@ export const approvals = pgTable("approvals", {
   reservationId: text("reservation_id"),
   expectedCents: integer("expected_cents").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  orderedAt: timestamp("ordered_at", { withTimezone: true }),
+  capturedOrder: jsonb("captured_order").$type<Record<string, unknown> | null>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

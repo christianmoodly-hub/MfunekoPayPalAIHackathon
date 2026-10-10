@@ -5,6 +5,7 @@ import { ledgerEvents } from "@/db/schema";
 import { appendLedgerEvent } from "@/lib/ledger";
 
 import { openSpendCents } from "./accounting";
+import { releaseExpiredOrderHolds } from "./holds";
 
 export class SpendReserveError extends Error {
   readonly spentCents: number;
@@ -35,6 +36,7 @@ export async function reserveSpendInDb(input: {
   const db = getDb();
   await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.mandateId})::bigint)`);
+    await releaseExpiredOrderHolds(input.mandateId, new Date(), tx);
     const rows = await tx
       .select({
         type: ledgerEvents.type,

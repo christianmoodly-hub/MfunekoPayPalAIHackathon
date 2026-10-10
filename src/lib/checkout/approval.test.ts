@@ -81,11 +81,19 @@ function pending(expiresAt: string): StoredApproval {
 }
 
 function deps(events: SpendEvent[] = []): ApprovalDeps & { events: LedgerEventInput[]; saved: StoredApproval | null } {
+  let claimed = false;
   const harness: ApprovalDeps & { events: LedgerEventInput[]; saved: StoredApproval | null } = {
     events: [],
     saved: null,
     now: new Date("2026-10-10T12:00:00.000Z"),
     loadApproval: async () => pending("2026-10-10T13:00:00.000Z"),
+    claimApproval: async () => {
+      if (claimed) {
+        return null;
+      }
+      claimed = true;
+      return pending("2026-10-10T13:00:00.000Z");
+    },
     saveApproval: async (approval) => {
       harness.saved = approval;
     },
@@ -93,7 +101,13 @@ function deps(events: SpendEvent[] = []): ApprovalDeps & { events: LedgerEventIn
     refetchPrice: async () => 600,
     loadEvents: async () => events,
     reserve: async () => undefined,
-    release: async () => undefined,
+    release: async (input) => {
+      harness.events.push({
+        type: "checkout.released",
+        mandateId: input.mandateId,
+        payload: { reservationId: input.reservationId },
+      });
+    },
     appendLedger: async (input) => {
       harness.events.push(input);
     },
@@ -168,6 +182,40 @@ describe("approveEscalation", () => {
     expect(harness.saved?.status).toBe("ordered");
     expect(harness.events.some((event) => event.type === "paypal.order.created")).toBe(true);
   });
+
+  it("claims a pending approval once before reserving or creating an order", async () => {
+    const steps: string[] = [];
+    let claimed = false;
+    const base = deps();
+    const start = () =>
+      approveEscalation(pending("").id, {
+        ...base,
+        loadApproval: async () => pending("2026-10-10T13:00:00.000Z"),
+        claimApproval: async () => {
+          steps.push("claim");
+          if (claimed) {
+            return null;
+          }
+          claimed = true;
+          return { ...pending("2026-10-10T13:00:00.000Z"), status: "ordering" };
+        },
+        reserve: async () => {
+          steps.push("reserve");
+        },
+        createBuyerOrder: async () => {
+          steps.push("order");
+          return buyerOrder("6.00");
+        },
+      });
+
+    const results = await Promise.allSettled([start(), start()]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(steps.filter((step) => step === "order")).toHaveLength(1);
+    expect(steps.indexOf("claim")).toBeGreaterThanOrEqual(0);
+    expect(steps.indexOf("claim")).toBeLessThan(steps.indexOf("reserve"));
+    expect(steps.indexOf("claim")).toBeLessThan(steps.indexOf("order"));
+  });
 });
 
 describe("captureAfterApproval", () => {
@@ -192,6 +240,8 @@ describe("captureAfterApproval", () => {
 
     expect(captureBuyerOrder).not.toHaveBeenCalled();
     expect(harness.events.some((event) => event.type === "paypal.order.captured")).toBe(false);
+    expect(harness.events.some((event) => event.type === "checkout.needs_reconciliation")).toBe(true);
+    expect(harness.events.some((event) => event.type === "checkout.released")).toBe(false);
   });
 
   it("fails when the capture amount differs from the snapshot", async () => {
@@ -211,8 +261,9 @@ describe("captureAfterApproval", () => {
       }),
     ).rejects.toBeInstanceOf(CheckoutAmountError);
 
-    expect(harness.events.some((event) => event.type === "paypal.order.captured")).toBe(false);
-    expect(harness.events.some((event) => event.type === "paypal.order.failed")).toBe(true);
+    expect(harness.events.some((event) => event.type === "paypal.order.captured")).toBe(true);
+    expect(harness.events.some((event) => event.type === "checkout.needs_reconciliation")).toBe(true);
+    expect(harness.events.some((event) => event.type === "checkout.released")).toBe(false);
   });
 
   it("writes the captured event with the mandate id and PayPal's capture amount", async () => {
@@ -238,5 +289,55 @@ describe("captureAfterApproval", () => {
         }),
       }),
     ]);
+  });
+
+  it("requires status ordered and returns the same capture without a second event", async () => {
+    const harness = deps();
+    const pendingApproval: StoredApproval = {
+      ...pending("2026-10-10T13:00:00.000Z"),
+      status: "pending",
+      orderId: "ORDER1",
+      reservationId: "reservation-approval",
+    };
+    const captureBuyerOrder = vi.fn(async () => capturedOrder("6.00", "6.00"));
+
+    await expect(
+      captureAfterApproval(pendingApproval.id, {
+        ...harness,
+        loadApproval: async () => pendingApproval,
+        captureBuyerOrder,
+      }),
+    ).rejects.toThrow(/ordered/);
+    expect(captureBuyerOrder).not.toHaveBeenCalled();
+
+    let current: StoredApproval = {
+      ...pending("2026-10-10T13:00:00.000Z"),
+      status: "ordered",
+      orderId: "ORDER1",
+      reservationId: "reservation-approval",
+    };
+    const first = await captureAfterApproval(current.id, {
+      ...harness,
+      loadApproval: async () => current,
+      saveApproval: async (approval) => {
+        current = approval;
+        harness.saved = approval;
+      },
+      captureBuyerOrder,
+    });
+    const second = await captureAfterApproval(current.id, {
+      ...harness,
+      loadApproval: async () => current,
+      saveApproval: async (approval) => {
+        current = approval;
+        harness.saved = approval;
+      },
+      captureBuyerOrder,
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(second.status).toBe("COMPLETED");
+    expect(captureBuyerOrder).toHaveBeenCalledTimes(1);
+    expect(harness.events.filter((event) => event.type === "paypal.order.captured")).toHaveLength(1);
   });
 });
