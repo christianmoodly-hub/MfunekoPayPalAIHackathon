@@ -7,17 +7,19 @@ export class PayPalApiError extends Error {
   readonly status: number;
   readonly debugId?: string;
   readonly issue?: string;
+  readonly paypalName?: string;
 
   constructor(status: number, body: unknown) {
     const parsed = paypalErrorSchema.safeParse(body);
-    const name = parsed.success ? parsed.data.name : undefined;
+    const paypalName = parsed.success ? parsed.data.name : undefined;
     const message = parsed.success ? parsed.data.message : undefined;
     const detail = parsed.success ? parsed.data.details?.[0] : undefined;
-    super(detail?.description ?? message ?? name ?? `PayPal request failed with HTTP ${status}.`);
+    super(detail?.description ?? message ?? paypalName ?? `PayPal request failed with HTTP ${status}.`);
     this.name = "PayPalApiError";
     this.status = status;
     this.debugId = parsed.success ? parsed.data.debug_id : undefined;
     this.issue = detail?.issue;
+    this.paypalName = paypalName;
   }
 }
 

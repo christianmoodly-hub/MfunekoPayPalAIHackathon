@@ -52,22 +52,146 @@ npm run hello-order
 
 `PayPal-Request-Id` is a SHA-256 prefix of a caller-supplied key, not a random UUID. Orders v2 stores that id for about 6 hours ([idempotency](https://developer.paypal.com/api/rest/reference/idempotency)). The hello-order create key is `hello-order:create`, so a repeat run inside that window returns the same order. Access tokens are reused until 60 seconds before `expires_in`, then refreshed ([authentication](https://developer.paypal.com/api/rest/authentication)).
 
-## Saved PayPal wallet (not implemented)
+## Saved PayPal wallet
 
-Checked 2026-10-09. This is the flow for "buyer consents once, later orders reuse the saved method."
+Checked 2026-10-10.
 
-- Overview: https://developer.paypal.com/docs/checkout/save-payment-methods/
 - Save a PayPal wallet with no purchase, then charge later: https://developer.paypal.com/docs/checkout/save-payment-methods/purchase-later/payment-tokens-api/paypal/
-- Use a saved token on an Orders v2 create: https://developer.paypal.com/api/save-with-purchase/save-payment-methods
-- Save during a purchase with `payment_source.paypal.attributes.vault`: https://developer.paypal.com/checkout/save-customer-info
+- Create setup token reference: https://developer.paypal.com/api/payment-tokens/v3/setup-tokens-create
+- Orders v2 create: https://developer.paypal.com/api/orders/v2/orders-create
+- `experience_context` moved here from `application_context`: https://developer.paypal.com/api/rest/integration/orders-api/v1-v2-migration
 
-The first step does not work without the buyer. `POST /v3/vault/setup-tokens` with `payment_source.paypal` returns `PAYER_ACTION_REQUIRED` and an `approve` link (`https://sandbox.paypal.com/agreements/approve?approval_session_id=...`). The buyer signs in and accepts a billing agreement. `usage_type` must be `MERCHANT` for merchant-initiated later charges. The setup token expires after about 3 days. After approval, `POST /v3/vault/payment-tokens` exchanges it for a payment token id.
+The sample setup request includes a shipping address and `shipping_preference: "SET_PROVIDED_ADDRESS"`. This app has no ship-to address, so the setup request omits `shipping` and sets `shipping_preference` to `NO_SHIPPING`. The other fields match the guide.
 
-Later charges can omit the buyer. `POST /v2/checkout/orders` with `intent: "CAPTURE"` and `payment_source.paypal.vault_id` set to that token is documented to create an order on behalf of the payer. The sample response status is `COMPLETED`. The same page says the payer does not need to be present when charged.
+`POST /v3/vault/setup-tokens`
 
-Sandbox setup is a dashboard toggle: the REST app's advanced options must have Vault selected. The guide also says saving a PayPal wallet can require a billing-agreement review ("contact your account manager"). A hackathon sandbox app may not be eligible until that is approved. That part was not tried against this app.
+```json
+{
+  "payment_source": {
+    "paypal": {
+      "description": "Mandate saved PayPal wallet",
+      "permit_multiple_payment_tokens": false,
+      "usage_pattern": "IMMEDIATE",
+      "usage_type": "MERCHANT",
+      "customer_type": "CONSUMER",
+      "experience_context": {
+        "shipping_preference": "NO_SHIPPING",
+        "payment_method_preference": "IMMEDIATE_PAYMENT_REQUIRED",
+        "brand_name": "Mandate",
+        "locale": "en-US",
+        "return_url": "https://example.com/api/paypal/link/return",
+        "cancel_url": "https://example.com/mandates?linked=0"
+      }
+    }
+  }
+}
+```
 
-Recommendation: use this for repeat sandbox charges after one human approval, and keep the policy engine in front of every charge. Do not use it for the first hello-order. Store only the payment token id and PayPal customer id after the buyer approves. Do not implement it until a sandbox app is confirmed to have Vault enabled.
+A successful setup returns `PAYER_ACTION_REQUIRED` and an `approve` link. `POST /api/paypal/link` returns that URL and nothing else. The return handler reads `approval_token_id`, then `approval_session_id`, then `token`. The guide's approve link uses `approval_session_id`. The return query name is not in the request sample, so the handler accepts the three names PayPal redirects have used.
+
+`POST /v3/vault/payment-tokens`
+
+```json
+{
+  "payment_source": {
+    "token": {
+      "id": "<setup-token-id>",
+      "type": "SETUP_TOKEN"
+    }
+  }
+}
+```
+
+The payment token id is the vault id. It is stored in `payment_methods.paypal_vault_id` and is not returned to the browser or written to the ledger. Ledger payloads store a 12-character SHA-256 fingerprint.
+
+`POST /v2/checkout/orders` for a saved wallet. The guide's sample is a single amount. This app adds the same line items the policy engine uses, with USD amounts converted from integer cents. `vault_id` is the stored payment token id.
+
+```json
+{
+  "intent": "CAPTURE",
+  "purchase_units": [
+    {
+      "reference_id": "charge-vaulted",
+      "description": "Mandate purchase",
+      "amount": {
+        "currency_code": "USD",
+        "value": "5.00",
+        "breakdown": {
+          "item_total": { "currency_code": "USD", "value": "5.00" }
+        }
+      },
+      "items": [
+        {
+          "name": "paypal.com",
+          "description": "sandbox",
+          "quantity": "1",
+          "unit_amount": { "currency_code": "USD", "value": "5.00" },
+          "category": "DIGITAL_GOODS"
+        }
+      ]
+    }
+  ],
+  "payment_source": {
+    "paypal": {
+      "vault_id": "<payment-token-id>"
+    }
+  }
+}
+```
+
+The guide's sample response status is `COMPLETED`, so a completed create is not captured a second time. Status `APPROVED` is captured with `POST /v2/checkout/orders/{id}/capture` and an empty body.
+
+Per-order buyer approval, used when Vault is unavailable, is `POST /v2/checkout/orders`:
+
+```json
+{
+  "intent": "CAPTURE",
+  "payment_source": {
+    "paypal": {
+      "experience_context": {
+        "brand_name": "Mandate",
+        "locale": "en-US",
+        "shipping_preference": "NO_SHIPPING",
+        "user_action": "PAY_NOW",
+        "return_url": "https://example.com/paypal/return",
+        "cancel_url": "https://example.com/paypal/cancel"
+      }
+    }
+  },
+  "purchase_units": [
+    {
+      "reference_id": "<mandate-id>",
+      "description": "Mandate purchase",
+      "amount": {
+        "currency_code": "USD",
+        "value": "5.00",
+        "breakdown": {
+          "item_total": { "currency_code": "USD", "value": "5.00" }
+        }
+      },
+      "items": [
+        {
+          "name": "<merchant>",
+          "description": "<category>",
+          "quantity": "1",
+          "unit_amount": { "currency_code": "USD", "value": "5.00" },
+          "category": "DIGITAL_GOODS"
+        }
+      ]
+    }
+  ]
+}
+```
+
+The approve URL is `rel: "payer-action"`, then `rel: "approve"`. Capture is the same empty-body capture as the hello order.
+
+```bash
+npm run charge-vaulted -- 500
+```
+
+That charges the newest active saved wallet. It does not print the vault id.
+
+Live sandbox check on 2026-10-10: `POST /v3/vault/setup-tokens` with the body above returned HTTP success, status `PAYER_ACTION_REQUIRED`, an `approve` link, and a customer id. PayPal did not reject the call for permissions or billing-agreement review. Buyer approval, the payment-token exchange, and `npm run charge-vaulted` were not run. Those need a sandbox personal account to open the approval URL.
 
 ## Gemini structured output
 

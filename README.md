@@ -25,7 +25,7 @@ Put values in `.env` before `db:migrate`. `.env` is gitignored. `npm install` po
 
 - **Gemini** parses a mandate and ranks search candidates. The model name comes from `GEMINI_MODEL`. Both calls use JSON schema output and are checked with Zod. Ranking can return only a product id, a quantity, and a reasoning string.
 - **Channel3** supplies products through `POST /v1/search`. Product titles and descriptions are treated as untrusted data.
-- **PayPal Orders v2** (sandbox) creates, confirms, and captures orders. `npm run hello-order` runs that path. A mandate checkout is not wired up yet.
+- **PayPal Orders v2** (sandbox) creates and captures orders. `npm run hello-order` runs a card payment. `POST /api/paypal/link` starts a saved-wallet setup, and `npm run charge-vaulted -- <cents>` charges that wallet. Per-order buyer approval remains available when Vault is not enabled.
 - **Render** hosts the app: a web service and Postgres. The database URL comes from the environment. The filesystem is not used for storage.
 - **AG Grid** is the planned ledger view: sortable, filterable, expandable audit rows. The ledger is written now. The grid page is not built yet.
 

@@ -101,11 +101,7 @@ export function confirmCardBody() {
   };
 }
 
-export async function createOrder(
-  client: PayPalClient,
-  body: ReturnType<typeof helloOrderBody>,
-  requestKey: string,
-) {
+export async function createOrder(client: PayPalClient, body: unknown, requestKey: string) {
   return parseOrder(await client.request({ method: "POST", path: "/v2/checkout/orders", body, requestKey }));
 }
 

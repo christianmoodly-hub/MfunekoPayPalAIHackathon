@@ -12,6 +12,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "hello-order": "node --env-file=.env --import tsx scripts/hello-order.ts",
+    "charge-vaulted": "node --env-file=.env --import tsx scripts/charge-vaulted.ts",
     "parse-mandate": "node --env-file=.env --import tsx scripts/parse-mandate.ts",
     "shop": "node --env-file=.env --import tsx scripts/shop.ts",
     "prepare": "git config core.hooksPath .githooks"

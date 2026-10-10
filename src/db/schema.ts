@@ -25,3 +25,11 @@ export const mandates = pgTable("mandates", {
   needsInput: jsonb("needs_input").$type<string[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const paymentMethods = pgTable("payment_methods", {
+  id: uuid("id").primaryKey(),
+  paypalVaultId: text("paypal_vault_id").notNull().unique(),
+  paypalCustomerId: text("paypal_customer_id"),
+  status: text("status").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
