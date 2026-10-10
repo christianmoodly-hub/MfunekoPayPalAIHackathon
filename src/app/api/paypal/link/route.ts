@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     const result = await beginVaultLink({
       client: createPayPalClient(readPayPalEnv()),
       returnUrl: `${origin}/api/paypal/link/return`,
-      cancelUrl: `${origin}/mandates?linked=0`,
+      cancelUrl: `${origin}/wallet?linked=0`,
       requestKey: `vault:setup:${crypto.randomUUID()}`,
       appendLedger: appendLedgerEvent,
     });

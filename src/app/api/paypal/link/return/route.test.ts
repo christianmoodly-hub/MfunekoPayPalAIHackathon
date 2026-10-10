@@ -53,7 +53,7 @@ describe("GET /api/paypal/link/return", () => {
     );
 
     expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe("http://localhost:3000/mandates?linked=1");
+    expect(response.headers.get("location")).toBe("http://localhost:3000/wallet?linked=1");
     expect(state.saved).toEqual([{ vaultId: "VAULT123", customerId: "customer-1" }]);
     expect(JSON.stringify(state.events)).not.toContain("VAULT123");
     expect(state.events.map((event) => event.type)).toEqual([
@@ -70,7 +70,7 @@ describe("GET /api/paypal/link/return", () => {
       }),
     );
 
-    expect(response.headers.get("location")).toBe("http://localhost:3000/mandates?linked=0");
+    expect(response.headers.get("location")).toBe("http://localhost:3000/wallet?linked=0");
     expect(state.events[0]?.type).toBe("paypal.vault.failed");
   });
 });

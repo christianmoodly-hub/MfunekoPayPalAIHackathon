@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
       mandateId: null,
       payload: { step: "return", message: "PayPal did not return a setup token." },
     }).catch(() => undefined);
-    return NextResponse.redirect(new URL("/mandates?linked=0", request.url));
+    return NextResponse.redirect(new URL("/wallet?linked=0", request.url));
   }
 
   try {
@@ -29,13 +29,13 @@ export async function GET(request: NextRequest) {
       appendLedger: appendLedgerEvent,
       save: insertPaymentMethod,
     });
-    return NextResponse.redirect(new URL("/mandates?linked=1", request.url));
+    return NextResponse.redirect(new URL("/wallet?linked=1", request.url));
   } catch (error) {
     await appendLedgerEvent({
       type: "paypal.vault.failed",
       mandateId: null,
       payload: vaultFailurePayload("return", error, setupTokenId),
     }).catch(() => undefined);
-    return NextResponse.redirect(new URL("/mandates?linked=0", request.url));
+    return NextResponse.redirect(new URL("/wallet?linked=0", request.url));
   }
 }
