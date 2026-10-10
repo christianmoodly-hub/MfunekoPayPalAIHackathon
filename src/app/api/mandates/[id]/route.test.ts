@@ -20,12 +20,14 @@ const mandate = {
   needsInput: [],
   spentCents: 400,
   heldCents: 250,
+  reconciliationCount: 0,
   remainingCents: 4350,
 };
 
 vi.mock("@/lib/mandates/balances", () => ({
-  listMandateBalances: async () => [mandate],
-  mandateBalance: async (id: string) => (id === mandate.id ? mandate : null),
+  mandateBalance: async (id?: string) => (id === undefined
+    ? { mandates: [mandate], unlinkedCapturedCents: 0, missingMandateCapturedCents: 0, missingMandateHeldCents: 0, missingMandateHoldCount: 0, missingMandateReconciliationCount: 0, wallet: { linked: false, fingerprint: null } }
+    : id === mandate.id ? mandate : null),
 }));
 
 import { GET as listMandates } from "../route";
@@ -45,7 +47,7 @@ describe("mandate routes", () => {
     const cookie = await testSessionCookie();
     const list = await listMandates(new NextRequest("http://localhost:3000/api/mandates", { headers: { cookie } }));
     expect(list.status).toBe(200);
-    await expect(list.json()).resolves.toEqual({ mandates: [mandate] });
+    await expect(list.json()).resolves.toEqual({ mandates: [mandate], unlinkedSandboxCapturedCents: 0, missingMandateCapturedCents: 0, missingMandateHeldCents: 0, missingMandateHoldCount: 0, missingMandateReconciliationCount: 0, wallet: { linked: false, fingerprint: null } });
 
     const one = await getMandate(new NextRequest(`http://localhost:3000/api/mandates/${mandate.id}`, { headers: { cookie } }), {
       params: Promise.resolve({ id: mandate.id }),

@@ -4,7 +4,7 @@ import { WalletScreen } from "@/components/wallet/wallet-screen";
 
 export default function Page() {
   return (
-    <Suspense fallback={<p className="px-8 py-6 font-mono text-[11px] text-[#545f73]">Checking the PayPal sandbox vault…</p>}>
+    <Suspense fallback={<p className="px-8 py-6 font-mono text-[11px] text-[#545f73]">Loading saved wallet status…</p>}>
       <WalletScreen />
     </Suspense>
   );

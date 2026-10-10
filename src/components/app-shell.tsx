@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronDown, FlaskConical, ShieldCheck, UserRound } from "lucide-react";
+import { FlaskConical, ShieldCheck, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 
 const links = [
@@ -21,7 +21,7 @@ export function AppShell({
     <div className="flex min-h-full min-w-0 flex-col overflow-x-clip bg-background text-foreground">
       <header className="sticky top-0 z-50 border-b border-border bg-card">
         <div className="mx-auto flex w-full max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-8">
-          <div className="flex min-w-0 flex-wrap items-center gap-3 lg:gap-6">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3 lg:gap-6">
             <Link href="/mandates" className="flex flex-col">
               <span className="flex items-baseline gap-1">
                 <span className="text-lg font-bold tracking-tight text-primary">MANDATE</span>
@@ -31,11 +31,11 @@ export function AppShell({
                 Deterministic Agent Control
               </span>
             </Link>
-            <span className="hidden items-center gap-1.5 rounded-full border border-[#fcd34d] bg-[#fef3c7] px-2.5 py-1 font-mono text-[11px] text-[#92400e] sm:inline-flex">
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#fcd34d] bg-[#fef3c7] px-2 py-1 font-mono text-[10px] text-[#92400e] sm:gap-1.5 sm:px-2.5 sm:text-[11px]">
               <FlaskConical className="size-3.5" />
               Sandbox: no real money
             </span>
-            <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
+            <nav className="flex min-w-0 items-center gap-0.5 overflow-x-auto sm:gap-1" aria-label="Primary">
               {links.map((item) => {
                 const active = item.href === activeNav;
                 return (
@@ -45,8 +45,8 @@ export function AppShell({
                     aria-current={active ? "page" : undefined}
                     className={
                       active
-                        ? "rounded-lg bg-primary px-4 py-2 text-sm font-bold text-primary-foreground shadow-sm"
-                        : "rounded-lg px-4 py-2 text-sm text-muted-foreground hover:bg-[#eff4ff] hover:text-foreground"
+                        ? "shrink-0 rounded-lg px-2 py-2 text-xs font-bold text-primary-foreground shadow-sm sm:px-4 sm:text-sm"
+                        : "shrink-0 rounded-lg px-2 py-2 text-xs text-muted-foreground hover:bg-[#eff4ff] hover:text-foreground sm:px-4 sm:text-sm"
                     }
                   >
                     {item.label}
@@ -57,16 +57,13 @@ export function AppShell({
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
             {walletLinked === null ? null : (
-              <span className="hidden items-center gap-1.5 rounded-full border border-border bg-[#d5e0f8]/50 px-2.5 py-1 font-mono text-[11px] text-[#111c2d] lg:inline-flex">
+              <span className="inline-flex items-center gap-1 rounded-full border border-border bg-[#d5e0f8]/50 px-2 py-1 font-mono text-[10px] text-[#111c2d] sm:gap-1.5 sm:px-2.5 sm:text-[11px]">
                 <span className={`size-2 rounded-full ${walletLinked ? "bg-[#00402a]" : "bg-[#ba1a1a]"}`} />
-                {walletLinked ? "Wallet linked" : "Wallet unlinked"}
+                <span className="sm:hidden">{walletLinked ? "Wallet on" : "Wallet off"}</span>
+                <span className="hidden sm:inline">{walletLinked ? "Wallet linked" : "Wallet unlinked"}</span>
                 {walletLinked ? <ShieldCheck className="size-3.5 text-[#00402a]" /> : null}
               </span>
             )}
-            <span className="hidden items-center gap-1 rounded-lg border border-border bg-[#eff4ff] px-2.5 py-1 font-mono text-[11px] sm:inline-flex">
-              us-east-1 // sim
-              <ChevronDown className="size-3.5 text-muted-foreground" />
-            </span>
             <span className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
               <UserRound className="size-4" />
             </span>

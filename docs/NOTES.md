@@ -259,3 +259,9 @@ npm run shop -- <mandateId>
 ```
 
 The command uses the mandate's `searchQuery`. Add a query argument to override it.
+
+Reservation `ba296494-8040-475c-b9f2-df69db2f840e` on mandate `6c6d6aa7-f203-4298-8716-549763049b33` was traced against the hosted ledger on 2026-10-10. The only event containing that reservation id is `checkout.reserved`, created at `2026-10-10T10:48:36.234Z`, with `amountCents: 600` and `run_id: null`. The mandate row is also missing. No `paypal.order.captured`, `checkout.released`, or `checkout.needs_reconciliation` event references the reservation. The ledger proves that a $6.00 hold was reserved and never settled or released, but cannot identify the initiating request or an order because the reservation event has no order id or run id. The current balance snapshot finds three open reservations totaling $14.00 across missing mandate records, including this $6.00 hold. The dashboard and ledger include those balances and call out open holds and reconciliation events.
+
+Dashboard and ledger balances use the shared mandate balance query. It reads wallet linkage from the saved database row and uses SQL aggregates over mandate-linked captures and reservations; unlinked sandbox captures are reported in their own total and do not count as mandate spend. The supporting index is `ledger_events(mandate_id, type)`.
+
+The baseline in `docs/TEST-REPORT.md` measured mandate list loading at 25 seconds and up to about a minute as mandates were added. After replacing the PayPal vault check and per-mandate ledger reads with one indexed SQL snapshot, five `/api/mandates` requests in local `next dev` took 428–1,429 ms (median 819 ms); the first request after edits was 1.4 seconds while Turbopack recompiled. Three of the five measured requests were below 1 second.

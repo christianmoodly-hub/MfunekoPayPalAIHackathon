@@ -6,7 +6,7 @@ import { AlertCircle, CheckCircle2, LoaderCircle, ShieldAlert } from "lucide-rea
 import { z } from "zod";
 
 import { AppShell } from "@/components/app-shell";
-import { centsToUsd } from "@/lib/money";
+import { centsToUsd, formatMoneyInText } from "@/lib/money";
 import { categoryMatches } from "@/lib/policy/categories";
 import { merchantCoveredBy } from "@/lib/policy/merchants";
 import { mandateSchema } from "@/lib/policy/schema";
@@ -28,6 +28,8 @@ const runSchema = z.object({
   error: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  approvalStatus: z.enum(["pending", "ordering", "ordered", "blocked", "expired", "captured", "declined", "cancelled"]).nullable(),
+  approvalAmountCents: z.number().int().nonnegative().nullable(),
   events: z.array(eventSchema),
 });
 
@@ -85,7 +87,7 @@ export function RunScreen({ id }: { id: string }) {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (statusRef.current && statusRef.current !== "running") {
+      if (statusRef.current === "stopped") {
         return;
       }
       try {
@@ -100,7 +102,8 @@ export function RunScreen({ id }: { id: string }) {
         if (cancelled) {
           return;
         }
-        statusRef.current = parsed.run.status;
+        const watchingApproval = ["pending", "ordering", "ordered"].includes(parsed.run.approvalStatus ?? "");
+        statusRef.current = parsed.run.status === "running" || watchingApproval ? "watching" : "stopped";
         setRun(parsed.run);
         setError(null);
         const mandateResponse = await fetch(`/api/mandates/${parsed.run.mandateId}`);
@@ -148,7 +151,7 @@ export function RunScreen({ id }: { id: string }) {
               <div className="mb-2 flex flex-wrap items-center gap-2 font-mono text-[11px] text-[#545f73]">
                 <span>ACTIVE MANDATE</span>
                 <span>{shortId(run.mandateId)}</span>
-                <StatusPill status={run.status} verdict={verdict?.verdict ?? null} />
+                <StatusPill status={run.status} verdict={run.approvalStatus === "captured" ? "APPROVE" : verdict?.verdict ?? null} approvalStatus={run.approvalStatus} />
               </div>
               <h1 className="text-3xl font-bold tracking-tight text-primary">“{mandate?.description ?? "Mandate"}”</h1>
             </div>
@@ -165,6 +168,8 @@ export function RunScreen({ id }: { id: string }) {
             error={run.error}
             approvalUrl={checkout?.approvalUrl ?? null}
             approvalId={checkout?.approvalId ?? null}
+            approvalStatus={run.approvalStatus}
+            approvalAmountCents={run.approvalAmountCents}
           />
 
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
@@ -200,7 +205,7 @@ export function RunScreen({ id }: { id: string }) {
                     <p className="mb-2 inline-flex rounded-lg bg-[#f1f5f9] px-2.5 py-1 font-mono text-[11px]">{proposal.domain}</p>
                     <p className="text-base font-semibold">{proposal.title}</p>
                     <p className="mt-1 font-mono text-[13px] text-[#545f73]">
-                      Qty {proposal.quantity} · {money(proposal.unitPriceCents)} each
+                      {shortCategory(proposal.category)} · Qty {proposal.quantity} · {money(proposal.unitPriceCents)} each
                     </p>
                     {proposal.reasoning ? <p className="mt-3 text-sm text-[#404848]">“{proposal.reasoning}”</p> : null}
                     <p className="mt-3 font-mono text-lg font-semibold text-primary">{money(proposal.unitPriceCents * proposal.quantity)}</p>
@@ -232,7 +237,7 @@ export function RunScreen({ id }: { id: string }) {
 
           <details className="rounded-3xl border border-border bg-[#f1f5f9] p-4">
             <summary className="cursor-pointer font-mono text-[11px] font-semibold tracking-wider text-[#545f73] uppercase">Raw ledger payload</summary>
-            <pre className="mt-3 overflow-x-auto font-mono text-[11px] leading-5 text-foreground">{JSON.stringify({ outcome: run.outcome, error: run.error, events: chronological }, null, 2)}</pre>
+            <pre className="mt-3 overflow-x-auto font-mono text-[11px] leading-5 text-foreground">{formatMoneyInText(JSON.stringify({ outcome: run.outcome, error: run.error, events: chronological }, null, 2))}</pre>
           </details>
         </div>
       ) : null}
@@ -240,9 +245,9 @@ export function RunScreen({ id }: { id: string }) {
   );
 }
 
-function StatusPill({ status, verdict }: { status: RunRecord["status"]; verdict: z.infer<typeof verdictSchema> | null }) {
-  const label = status === "running" ? "RUNNING" : verdict ?? status.toUpperCase();
-  const tone = label === "APPROVE" ? "bg-[#ecfdf5] text-[#065f46]" : label === "BLOCK" || status === "failed" ? "bg-[#fef2f2] text-[#991b1b]" : "bg-[#fffbeb] text-[#92400e]";
+function StatusPill({ status, verdict, approvalStatus }: { status: RunRecord["status"]; verdict: z.infer<typeof verdictSchema> | null; approvalStatus: RunRecord["approvalStatus"] }) {
+  const label = approvalStatus === "captured" ? "CAPTURED" : approvalStatus === "cancelled" || approvalStatus === "declined" ? "CANCELLED" : status === "running" ? "RUNNING" : verdict ?? status.toUpperCase();
+  const tone = label === "APPROVE" || label === "CAPTURED" ? "bg-[#ecfdf5] text-[#065f46]" : label === "BLOCK" || label === "CANCELLED" || status === "failed" ? "bg-[#fef2f2] text-[#991b1b]" : "bg-[#fffbeb] text-[#92400e]";
   return <span className={`rounded-full px-2 py-0.5 font-semibold ${tone}`}>{label}</span>;
 }
 
@@ -253,6 +258,8 @@ function VerdictBanner({
   error,
   approvalUrl,
   approvalId,
+  approvalStatus,
+  approvalAmountCents,
 }: {
   status: RunRecord["status"];
   verdict: z.infer<typeof verdictSchema> | null;
@@ -260,9 +267,11 @@ function VerdictBanner({
   error: string | null;
   approvalUrl: string | null;
   approvalId: string | null;
+  approvalStatus: RunRecord["approvalStatus"];
+  approvalAmountCents: number | null;
 }) {
-  const text = bannerText(status, verdict, chargedCents, error);
-  const tone = verdict === "APPROVE" ? "border-[#a7f3d0] bg-[#ecfdf5]" : verdict === "BLOCK" || status === "failed" ? "border-[#fecaca] bg-[#fef2f2]" : "border-[#fde68a] bg-[#fffbeb]";
+  const text = bannerText(status, verdict, chargedCents, error, approvalStatus, approvalAmountCents);
+  const tone = approvalStatus === "captured" || verdict === "APPROVE" ? "border-[#a7f3d0] bg-[#ecfdf5]" : approvalStatus === "cancelled" || approvalStatus === "declined" || verdict === "BLOCK" || status === "failed" ? "border-[#fecaca] bg-[#fef2f2]" : "border-[#fde68a] bg-[#fffbeb]";
   return (
     <div className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${tone}`}>
       <p className="font-mono text-[13px] font-semibold">{text}</p>
@@ -348,7 +357,7 @@ function checklist(
 ) {
   if (!mandate || !proposal) {
     if (verdict && verdict.reasons.length > 0) {
-      return verdict.reasons.map((reason) => ({ label: reason, detail: verdict.verdict, state: verdict.verdict === "APPROVE" ? "pass" as const : "fail" as const }));
+      return verdict.reasons.map((reason) => ({ label: formatMoneyInText(reason), detail: verdict.verdict, state: verdict.verdict === "APPROVE" ? "pass" as const : "fail" as const }));
     }
     return [{ label: "Policy engine", detail: "Waiting for a proposal", state: "wait" as const }];
   }
@@ -382,7 +391,7 @@ function checklist(
     });
   }
   if (verdict?.verdict === "ESCALATE") {
-    rows.push({ label: "Human approval", detail: verdict.reasons.join(" ") || "Escalated", state: "wait" });
+    rows.push({ label: "Human approval", detail: formatMoneyInText(verdict.reasons.join(" ")) || "Escalated", state: "wait" });
   }
   return rows;
 }
@@ -400,10 +409,14 @@ function merchantRow(mandate: MandateRecord, domain: string): { label: string; d
 
 function categoryRow(mandate: MandateRecord, category: string | null): { label: string; detail: string; state: CheckState } {
   if (mandate.allowedCategories === null) {
-    return { label: "Category", detail: category ?? "Any category", state: "pass" };
+    return { label: "Category", detail: shortCategory(category), state: "pass" };
   }
   const matches = category !== null && categoryMatches(mandate.allowedCategories, category);
-  return { label: "Category", detail: category ?? "Missing category", state: matches ? "pass" : "fail" };
+  return { label: "Category", detail: category ? shortCategory(category) : "Missing category", state: matches ? "pass" : "fail" };
+}
+
+function shortCategory(category: string | null): string {
+  return category?.split("/").filter(Boolean).at(-1) ?? "Any category";
 }
 
 function stepDetail(title: string, events: RunRecord["events"]): string | null {
@@ -429,9 +442,15 @@ function stepDetail(title: string, events: RunRecord["events"]): string | null {
   return latest.type;
 }
 
-function bannerText(status: RunRecord["status"], verdict: z.infer<typeof verdictSchema> | null, chargedCents: number | null, error: string | null): string {
+function bannerText(status: RunRecord["status"], verdict: z.infer<typeof verdictSchema> | null, chargedCents: number | null, error: string | null, approvalStatus: RunRecord["approvalStatus"], approvalAmountCents: number | null): string {
+  if (approvalStatus === "captured") {
+    return `Approved and captured ${money(approvalAmountCents ?? chargedCents ?? 0)} in the PayPal sandbox.`;
+  }
+  if (approvalStatus === "cancelled" || approvalStatus === "declined") {
+    return approvalStatus === "cancelled" ? "This purchase was cancelled. No capture was made." : "This purchase was declined. No capture was made.";
+  }
   if (status === "failed") {
-    return error ?? "The run failed before checkout.";
+    return error ? formatMoneyInText(error) : "The run failed before checkout.";
   }
   if (status === "running") {
     return "The agent is searching. No money moves until the policy engine approves.";

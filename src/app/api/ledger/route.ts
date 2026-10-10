@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { requireSession } from "@/lib/auth/guard";
 import { listLedgerEvents } from "@/lib/ledger/query";
+import { mandateBalance } from "@/lib/mandates/balances";
 
 const querySchema = z.object({
   mandateId: z.string().uuid().optional(),
@@ -35,6 +36,14 @@ export async function GET(request: Request) {
     return Response.json({ error: "Ledger filters are invalid." }, { status: 400 });
   }
 
-  const events = await listLedgerEvents(parsed.data);
-  return Response.json({ events });
+  const [events, snapshot] = await Promise.all([listLedgerEvents(parsed.data), mandateBalance()]);
+  return Response.json({
+    events,
+    mandates: snapshot.mandates,
+    unlinkedSandboxCapturedCents: snapshot.unlinkedCapturedCents,
+    missingMandateCapturedCents: snapshot.missingMandateCapturedCents,
+    missingMandateHeldCents: snapshot.missingMandateHeldCents,
+    missingMandateHoldCount: snapshot.missingMandateHoldCount,
+    missingMandateReconciliationCount: snapshot.missingMandateReconciliationCount,
+  });
 }

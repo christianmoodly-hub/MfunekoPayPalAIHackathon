@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 export const ledgerEvents = pgTable("ledger_events", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -7,7 +7,7 @@ export const ledgerEvents = pgTable("ledger_events", {
   type: text("type").notNull(),
   payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("ledger_events_mandate_type_idx").on(table.mandateId, table.type)]);
 
 export const mandates = pgTable("mandates", {
   id: uuid("id").primaryKey(),

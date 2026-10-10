@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   BadgeCheck,
   Ban,
@@ -150,9 +150,6 @@ export function MandateForm({ onDone }: { onDone?: () => void }) {
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Gavel className="size-5 text-primary" />
             <h1 className="text-lg font-semibold tracking-tight">Create New Mandate</h1>
-            <span className="rounded bg-[#00402a]/15 px-1.5 py-0.5 font-mono text-[11px] font-bold tracking-wider text-[#005137] uppercase">
-              SEC-L2 Enforced
-            </span>
           </div>
           <p className="text-sm text-[#404848]">
             Define natural language intent. The deterministic engine enforces the immutable spending bounds.
@@ -286,7 +283,7 @@ export function MandateForm({ onDone }: { onDone?: () => void }) {
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <UsdAmount label="Total budget cap" hint="Strict ceiling" cents={fields.maxTotalCents} disabled={!mandateId} onCents={(value) => update(setFields, "maxTotalCents", value)} />
             <UsdAmount label="Per-item unit cap" hint="No single SKU above this" cents={fields.maxPerItemCents} disabled={!mandateId} onCents={(value) => update(setFields, "maxPerItemCents", value)} />
-            <UsdAmount label="Escalate above" hint="A person must approve" cents={fields.escalateAboveCents} disabled={!mandateId} onCents={(value) => update(setFields, "escalateAboveCents", value)} />
+            <UsdAmount label="Escalate above" hint="Defaults to half the budget; higher carts need your approval." cents={fields.escalateAboveCents} disabled={!mandateId} onCents={(value) => update(setFields, "escalateAboveCents", value)} />
           </div>
 
           <div className="mt-5">
@@ -433,6 +430,9 @@ export function MandateForm({ onDone }: { onDone?: () => void }) {
           {mandateId ? "1 draft saved" : "No draft yet"}
           {exposure ? <> · Max exposure <span className="text-primary">{exposure}</span></> : null}
         </p>
+        {mandateId && fields.needsInput.includes("budget") ? (
+          <p className="rounded-lg bg-[#fffbeb] px-3 py-2 text-sm text-[#92400e]" role="alert">Missing: budget. Add a total budget before confirming.</p>
+        ) : null}
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" className="h-10 rounded-lg bg-[#f1f5f9] px-4" onClick={() => onDone?.()}>
             Back to mandates
@@ -486,10 +486,7 @@ function UsdAmount({
   disabled: boolean;
   onCents: (value: string) => void;
 }) {
-  const [text, setText] = useState(displayCents(cents));
-  useEffect(() => {
-    setText(displayCents(cents));
-  }, [cents]);
+  const [text, setText] = useState<string | null>(null);
 
   return (
     <label className="rounded-2xl bg-[#eff4ff] p-3">
@@ -500,12 +497,12 @@ function UsdAmount({
           className="w-full bg-transparent outline-none"
           inputMode="decimal"
           disabled={disabled}
-          value={text}
+          value={text ?? displayCents(cents)}
           onChange={(event) => setText(event.target.value)}
           onBlur={() => {
-            const next = dollarsToCentsField(text);
+            const next = dollarsToCentsField(text ?? displayCents(cents));
             if (next === null) {
-              setText(displayCents(cents));
+              setText(null);
               return;
             }
             onCents(next);

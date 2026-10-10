@@ -7,6 +7,7 @@ import { mandateSchema } from "@/lib/policy/schema";
 const balanceSchema = mandateSchema.extend({
   spentCents: z.number().int().nonnegative(),
   heldCents: z.number().int().nonnegative(),
+  reconciliationCount: z.number().int().nonnegative(),
   remainingCents: z.number().int(),
 });
 

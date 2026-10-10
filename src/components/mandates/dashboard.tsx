@@ -11,7 +11,6 @@ import {
   Plus,
   Receipt,
   Search,
-  ShieldCheck,
   Wallet,
 } from "lucide-react";
 import { z } from "zod";
@@ -28,14 +27,16 @@ const mandateListSchema = z.object({
     mandateSchema.extend({
       spentCents: z.number().int().nonnegative(),
       heldCents: z.number().int().nonnegative(),
+      reconciliationCount: z.number().int().nonnegative(),
       remainingCents: z.number().int(),
     }),
   ),
-});
-
-const walletSchema = z.object({
-  linked: z.boolean(),
-  fingerprint: z.string().nullable(),
+  unlinkedSandboxCapturedCents: z.number().int().nonnegative(),
+  missingMandateCapturedCents: z.number().int().nonnegative(),
+  missingMandateHeldCents: z.number().int().nonnegative(),
+  missingMandateHoldCount: z.number().int().nonnegative(),
+  missingMandateReconciliationCount: z.number().int().nonnegative(),
+  wallet: z.object({ linked: z.boolean(), fingerprint: z.string().nullable() }),
 });
 
 type Filter = "all" | MandateStatus;
@@ -51,7 +52,9 @@ const filters: { id: Filter; label: string }[] = [
 export function MandateDashboard() {
   const router = useRouter();
   const [mandates, setMandates] = useState<MandateCardModel[] | null>(null);
-  const [wallet, setWallet] = useState<z.infer<typeof walletSchema> | null>(null);
+  const [unlinkedCapturedCents, setUnlinkedCapturedCents] = useState(0);
+  const [missingMandate, setMissingMandate] = useState({ capturedCents: 0, heldCents: 0, holdCount: 0, reconciliationCount: 0 });
+  const [wallet, setWallet] = useState<{ linked: boolean; fingerprint: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
@@ -65,20 +68,22 @@ export function MandateDashboard() {
     let cancelled = false;
     async function load() {
       try {
-        const [mandateResponse, walletResponse] = await Promise.all([
-          fetch("/api/mandates"),
-          fetch("/api/wallet"),
-        ]);
+        const mandateResponse = await fetch("/api/mandates");
         const mandateBody: unknown = await mandateResponse.json();
-        const walletBody: unknown = await walletResponse.json();
-        if (!mandateResponse.ok || !walletResponse.ok) {
+        if (!mandateResponse.ok) {
           throw new Error("Could not load the dashboard.");
         }
         const parsedMandates = mandateListSchema.parse(mandateBody);
-        const parsedWallet = walletSchema.parse(walletBody);
         if (!cancelled) {
           setMandates(parsedMandates.mandates);
-          setWallet(parsedWallet);
+          setUnlinkedCapturedCents(parsedMandates.unlinkedSandboxCapturedCents);
+          setMissingMandate({
+            capturedCents: parsedMandates.missingMandateCapturedCents,
+            heldCents: parsedMandates.missingMandateHeldCents,
+            holdCount: parsedMandates.missingMandateHoldCount,
+            reconciliationCount: parsedMandates.missingMandateReconciliationCount,
+          });
+          setWallet(parsedMandates.wallet);
         }
       } catch {
         if (!cancelled) {
@@ -174,7 +179,6 @@ export function MandateDashboard() {
               <span className="rounded bg-primary px-1.5 py-0.5 text-[11px] font-bold tracking-[0.08em] text-primary-foreground uppercase">
                 Execution Standard
               </span>
-              <span className="font-mono text-[11px] text-[#545f73]">POLICY_GOV_SPEC_v2.08</span>
             </div>
             <h1 className="text-3xl font-bold tracking-tight text-balance text-primary sm:text-4xl">
               The AI proposes. Deterministic rules decide.
@@ -184,21 +188,12 @@ export function MandateDashboard() {
               enforced in code before any sandbox capture.
             </p>
           </div>
-          <div className="flex items-center gap-3 rounded-2xl bg-card p-3 shadow-sm">
-            <div className="text-right">
-              <p className="text-[11px] font-bold tracking-[0.06em] text-[#545f73] uppercase">Deterministic Shield</p>
-              <p className="font-mono text-[11px] font-semibold text-[#00402a]">ZERO OVERDRAFT RISK</p>
-            </div>
-            <div className="flex size-10 items-center justify-center rounded-lg bg-[#00402a]/10 text-[#00402a]">
-              <ShieldCheck className="size-5" />
-            </div>
-          </div>
         </div>
       </section>
 
       <section className="mb-6 rounded-3xl border border-border bg-card p-6 shadow-sm">
         {wallet === null ? (
-          <p className="font-mono text-[11px] text-[#545f73]">Checking the PayPal sandbox vault…</p>
+          <p className="font-mono text-[11px] text-[#545f73]">Loading saved wallet status…</p>
         ) : wallet.linked ? (
           <div className="flex items-center gap-4">
             <div className="flex size-12 items-center justify-center rounded-2xl bg-[#f1f5f9] text-primary">
@@ -206,10 +201,10 @@ export function MandateDashboard() {
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-semibold tracking-tight">PayPal Authorized Ledger</h2>
+                <h2 className="text-lg font-semibold tracking-tight">Saved PayPal sandbox wallet</h2>
                 <span className="inline-flex items-center gap-1 rounded-full bg-[#85f8c4] px-2 py-0.5 font-mono text-[11px] text-[#002114]">
                   <span className="size-1.5 rounded-full bg-[#00402a]" />
-                  VERIFIED ACTIVE
+                  SAVED METHOD ACTIVE
                 </span>
               </div>
               <p className="mt-0.5 font-mono text-[13px] text-[#545f73]">
@@ -244,13 +239,20 @@ export function MandateDashboard() {
       </section>
 
       {mandates === null ? null : (
-      <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
         <Metric label="Active mandates" value={String(counts.active)} detail={`/ ${counts.all} configured`} note="Policy evaluation live" icon={<Landmark className="size-5" />} />
         <Metric label="Total allocated" value={formatUsd(totals.allocatedCents)} detail="" note="Sum of mandate caps" icon={<Landmark className="size-5" />} />
-        <Metric label="Captured (spent)" value={formatUsd(totals.spentCents)} detail="" note="Settled on merchant rails" icon={<Receipt className="size-5" />} />
-        <Metric label="Escrow holds" value={formatUsd(totals.heldCents)} detail="" note="Awaiting capture or release" icon={<LockKeyhole className="size-5" />} />
+        <Metric label="Captured (spent)" value={formatUsd(totals.spentCents + missingMandate.capturedCents)} detail="" note="Mandate-linked captures" icon={<Receipt className="size-5" />} />
+        <Metric label="Open reservations" value={formatUsd(totals.heldCents + missingMandate.heldCents)} detail="" note="Awaiting capture or release" icon={<LockKeyhole className="size-5" />} />
+        <Metric label="Unlinked sandbox captures" value={formatUsd(unlinkedCapturedCents)} detail="" note="Test charges outside mandate spend" icon={<Receipt className="size-5" />} />
       </section>
       )}
+
+      {missingMandate.holdCount > 0 ? (
+        <p className="mb-6 rounded-2xl border border-[#fde68a] bg-[#fffbeb] px-4 py-3 text-sm text-[#92400e]" role="status">
+          {missingMandate.holdCount} open reservation{missingMandate.holdCount === 1 ? "" : "s"} ({formatUsd(missingMandate.heldCents)}) belong to mandate ids with no matching mandate record. {missingMandate.reconciliationCount > 0 ? `${missingMandate.reconciliationCount} needs reconciliation. ` : ""}Review the ledger before resolving them.
+        </p>
+      ) : null}
 
       <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div className="flex gap-1 overflow-x-auto rounded-2xl bg-[#eff4ff] p-1" role="tablist" aria-label="Mandate status">
@@ -263,7 +265,7 @@ export function MandateDashboard() {
                 type="button"
                 role="tab"
                 aria-selected={selected}
-                className={`rounded-xl px-4 py-2 text-sm whitespace-nowrap ${selected ? "bg-card font-semibold text-primary shadow-sm" : "text-[#545f73] hover:bg-[#dce9ff]"}`}
+                className={`shrink-0 rounded-xl px-4 py-2 text-sm whitespace-nowrap ${selected ? "bg-card font-semibold text-primary shadow-sm" : "text-[#545f73] hover:bg-[#dce9ff]"}`}
                 onClick={() => setFilter(item.id)}
               >
                 {item.label} ({count})

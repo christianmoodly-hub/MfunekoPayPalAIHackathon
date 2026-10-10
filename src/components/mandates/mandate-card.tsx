@@ -28,6 +28,7 @@ export type MandateCardModel = {
   needsInput: string[];
   spentCents: number;
   heldCents: number;
+  reconciliationCount: number;
   remainingCents: number;
 };
 
@@ -106,6 +107,11 @@ export function MandateCard({
             muted={closed}
           />
         )}
+        {mandate.reconciliationCount > 0 ? (
+          <p className="mb-3 rounded-xl border border-[#fde68a] bg-[#fffbeb] px-3 py-2 text-xs text-[#92400e]" role="status">
+            {mandate.reconciliationCount} checkout {mandate.reconciliationCount === 1 ? "charge needs" : "charges need"} reconciliation. This hold remains reserved until resolved.
+          </p>
+        ) : null}
       </div>
       <div className="mt-4 flex flex-col items-stretch justify-between gap-3 border-t border-[#f1f5f9] pt-4 sm:flex-row sm:items-center">
         <p className="flex items-center gap-2 font-mono text-[11px] text-[#545f73]">

@@ -22,6 +22,9 @@ vi.mock("@/lib/ledger/query", () => ({
     ];
   },
 }));
+vi.mock("@/lib/mandates/balances", () => ({
+  mandateBalance: async () => ({ mandates: [], unlinkedCapturedCents: 0, missingMandateCapturedCents: 0, missingMandateHeldCents: 0, missingMandateHoldCount: 0, missingMandateReconciliationCount: 0, wallet: { linked: false, fingerprint: null } }),
+}));
 
 import { GET } from "./route";
 
@@ -45,7 +48,7 @@ describe("GET /api/ledger", () => {
       }),
     );
     expect(response.status).toBe(200);
-    expect(state.filter).toEqual({ mandateId, type: "checkout.blocked", limit: 10 });
+      expect(state.filter).toEqual({ mandateId, type: "checkout.blocked", limit: 10 });
     const body = (await response.json()) as { events: { type: string }[] };
     expect(body.events[0]?.type).toBe("checkout.blocked");
   });

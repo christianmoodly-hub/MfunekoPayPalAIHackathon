@@ -2,7 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "@/db/client";
-import { ledgerEvents, runs } from "@/db/schema";
+import { approvals, ledgerEvents, runs } from "@/db/schema";
 import { readChannel3Env } from "@/lib/channel3/env";
 import { runGuardedCheckout } from "@/lib/checkout/live";
 import { createGeminiGenerate } from "@/lib/gemini/client";
@@ -14,6 +14,7 @@ import { shopQuery } from "@/lib/shopping/query";
 import { runShoppingSearch } from "@/lib/shopping/run";
 
 const runStatusSchema = z.enum(["running", "completed", "failed"]);
+const approvalStatusSchema = z.enum(["pending", "ordering", "ordered", "blocked", "expired", "captured", "declined", "cancelled"]);
 
 const eventSchema = z.object({
   id: z.string(),
@@ -89,7 +90,11 @@ export async function executeRun(id: string): Promise<void> {
   }
 }
 
-export async function getRun(id: string): Promise<(RunView & { events: RunEventView[] }) | null> {
+export async function getRun(id: string): Promise<(RunView & {
+  events: RunEventView[];
+  approvalStatus: "pending" | "ordering" | "ordered" | "blocked" | "expired" | "captured" | "declined" | "cancelled" | null;
+  approvalAmountCents: number | null;
+}) | null> {
   const [row] = await getDb().select().from(runs).where(eq(runs.id, id)).limit(1);
   if (!row) {
     return null;
@@ -106,9 +111,17 @@ export async function getRun(id: string): Promise<(RunView & { events: RunEventV
     .from(ledgerEvents)
     .where(eq(ledgerEvents.runId, id))
     .orderBy(desc(ledgerEvents.createdAt));
+  const [approval] = await getDb()
+    .select({ status: approvals.status, expectedCents: approvals.expectedCents, createdAt: approvals.createdAt })
+    .from(approvals)
+    .where(eq(approvals.runId, id))
+    .orderBy(desc(approvals.createdAt))
+    .limit(1);
 
   return {
     ...toRun(row),
+    approvalStatus: approval ? approvalStatusSchema.parse(approval.status) : null,
+    approvalAmountCents: approval?.expectedCents ?? null,
     events: events.map((event) =>
       eventSchema.parse({
         id: event.id,

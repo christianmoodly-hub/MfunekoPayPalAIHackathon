@@ -1,8 +1,7 @@
 import { z } from "zod";
 
 import { requireSession } from "@/lib/auth/guard";
-import { secretFingerprint } from "@/lib/paypal/fingerprint";
-import { latestActivePaymentMethod } from "@/lib/paypal/payment-methods";
+import { walletStatusFromDatabase } from "@/lib/mandates/balances";
 
 const walletSchema = z.object({
   linked: z.boolean(),
@@ -15,9 +14,5 @@ export async function GET(request: Request) {
     return denied;
   }
 
-  const saved = await latestActivePaymentMethod();
-  if (!saved) {
-    return Response.json(walletSchema.parse({ linked: false, fingerprint: null }));
-  }
-  return Response.json(walletSchema.parse({ linked: true, fingerprint: secretFingerprint(saved.vaultId) }));
+  return Response.json(walletSchema.parse(await walletStatusFromDatabase()));
 }

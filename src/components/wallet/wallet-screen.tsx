@@ -162,7 +162,7 @@ export function WalletScreen() {
                 <h2 className="text-lg font-semibold tracking-tight">Saved payment method</h2>
                 <p className="mt-1 font-mono text-[12px] text-[#545f73]">
                   {wallet === null
-                    ? "Checking the PayPal sandbox vault…"
+                    ? "Loading saved wallet status…"
                     : wallet.linked
                       ? `Fingerprint ${wallet.fingerprint ?? "linked"}`
                       : "No sandbox wallet is saved."}
