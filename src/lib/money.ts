@@ -31,3 +31,12 @@ export function centsToUsd(cents: number): string {
   const remainder = cents % 100;
   return `${dollars}.${remainder.toString().padStart(2, "0")}`;
 }
+
+export function formatMoneyInText(value: string): string {
+  return value.replace(/(-?\d+) cents\b/g, (_match, amount: string) => {
+    const cents = Number(amount);
+    if (!Number.isSafeInteger(cents)) return `${amount} cents`;
+    const formatted = centsToUsd(Math.abs(cents));
+    return `${cents < 0 ? "-" : ""}USD $${formatted}`;
+  });
+}

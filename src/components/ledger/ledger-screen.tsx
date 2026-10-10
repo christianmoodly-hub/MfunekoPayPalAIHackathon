@@ -25,7 +25,11 @@ export function LedgerScreen() {
   const [events, setEvents] = useState<LedgerEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [type, setType] = useState("all");
+  const [type, setType] = useState("money");
+  const [showEverything, setShowEverything] = useState(false);
+  const [balances, setBalances] = useState<{ spentCents: number; heldCents: number } | null>(null);
+  const [unlinkedCapturedCents, setUnlinkedCapturedCents] = useState(0);
+  const [missingMandate, setMissingMandate] = useState({ spentCents: 0, heldCents: 0, holdCount: 0, reconciliationCount: 0 });
   const [sortKey, setSortKey] = useState<SortKey>("createdAt");
   const [sortAsc, setSortAsc] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -39,9 +43,25 @@ export function LedgerScreen() {
         if (!response.ok) {
           throw new Error("Could not load the ledger.");
         }
-        const parsed = z.object({ events: z.array(eventSchema) }).parse(body);
+        const parsed = z.object({
+          events: z.array(eventSchema),
+          mandates: z.array(z.object({ spentCents: z.number(), heldCents: z.number() })),
+          unlinkedSandboxCapturedCents: z.number(),
+          missingMandateCapturedCents: z.number(),
+          missingMandateHeldCents: z.number(),
+          missingMandateHoldCount: z.number(),
+          missingMandateReconciliationCount: z.number(),
+        }).parse(body);
         if (!cancelled) {
           setEvents(parsed.events);
+          setBalances(parsed.mandates.reduce((sum, row) => ({ spentCents: sum.spentCents + row.spentCents, heldCents: sum.heldCents + row.heldCents }), { spentCents: 0, heldCents: 0 }));
+          setUnlinkedCapturedCents(parsed.unlinkedSandboxCapturedCents);
+          setMissingMandate({
+            spentCents: parsed.missingMandateCapturedCents,
+            heldCents: parsed.missingMandateHeldCents,
+            holdCount: parsed.missingMandateHoldCount,
+            reconciliationCount: parsed.missingMandateReconciliationCount,
+          });
         }
       } catch {
         if (!cancelled) {
@@ -59,7 +79,10 @@ export function LedgerScreen() {
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const filtered = (events ?? []).filter((event) => {
-      if (type !== "all" && event.type !== type) {
+      if (!showEverything && !isMoneyEvent(event.type)) {
+        return false;
+      }
+      if (type !== "money" && type !== "all" && event.type !== type) {
         return false;
       }
       if (!needle) {
@@ -71,7 +94,7 @@ export function LedgerScreen() {
         .includes(needle);
     });
     return filtered.sort((left, right) => compare(left, right, sortKey, sortAsc));
-  }, [events, query, sortAsc, sortKey, type]);
+  }, [events, query, showEverything, sortAsc, sortKey, type]);
 
   const selected = visible.find((event) => event.id === selectedId) ?? visible[0] ?? null;
   const totals = useMemo(() => summarize(events ?? []), [events]);
@@ -101,11 +124,18 @@ export function LedgerScreen() {
       </header>
 
       <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Captured" value={money(totals.spentCents)} note="Settled sandbox captures" />
-        <Metric label="Escrow holds" value={money(totals.heldCents)} note="Reservations still open" />
+        <Metric label="Mandate captures" value={money((balances?.spentCents ?? 0) + missingMandate.spentCents)} note="Only mandate-linked captures count as spend" />
+        <Metric label="Open reservations" value={money((balances?.heldCents ?? 0) + missingMandate.heldCents)} note="Reserved mandate spend" />
+        <Metric label="Unlinked captures" value={money(unlinkedCapturedCents)} note="Sandbox test charges without a mandate" />
         <Metric label="Events loaded" value={String(events?.length ?? 0)} note="Newest 200 rows" />
         <Metric label="Mandates touched" value={String(totals.mandates)} note="Distinct mandate ids" />
       </section>
+
+      {missingMandate.holdCount > 0 ? (
+        <p className="mb-4 rounded-2xl border border-[#fde68a] bg-[#fffbeb] px-4 py-3 text-sm text-[#92400e]" role="status">
+          {missingMandate.holdCount} open reservation{missingMandate.holdCount === 1 ? "" : "s"} ({money(missingMandate.heldCents)}) belong to mandate ids with no matching mandate record. {missingMandate.reconciliationCount > 0 ? `${missingMandate.reconciliationCount} need reconciliation.` : ""}
+        </p>
+      ) : null}
 
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center">
         <label className="relative block lg:w-80">
@@ -125,13 +155,18 @@ export function LedgerScreen() {
             value={type}
             onChange={(event) => setType(event.target.value)}
           >
+            <option value="money">Money events</option>
             <option value="all">All types</option>
-            {types.map((item) => (
+            {showEverything ? types.map((item) => (
               <option key={item} value={item}>
                 {item}
               </option>
-            ))}
+            )) : null}
           </select>
+        </label>
+        <label className="inline-flex items-center gap-2 text-sm text-[#545f73]">
+          <input type="checkbox" checked={showEverything} onChange={(event) => { setShowEverything(event.target.checked); setType(event.target.checked ? "all" : "money"); }} />
+          Show everything
         </label>
       </div>
 
@@ -201,7 +236,7 @@ export function LedgerScreen() {
             <>
               <p className="mt-2 font-mono text-[12px] font-semibold">{selected.type}</p>
               <p className="mt-1 font-mono text-[11px] text-[#545f73]">{selected.id}</p>
-              <pre className="mt-3 max-h-[480px] overflow-auto font-mono text-[11px] leading-5">{JSON.stringify(selected.payload, null, 2)}</pre>
+              <pre className="mt-3 max-h-[480px] overflow-auto font-mono text-[11px] leading-5">{JSON.stringify(formatPayload(selected.payload), null, 2)}</pre>
             </>
           ) : (
             <p className="mt-3 text-sm text-[#545f73]">Select a row to inspect its payload.</p>
@@ -267,6 +302,26 @@ function verdictOf(event: LedgerEvent): string | null {
 
 function uniqueTypes(events: LedgerEvent[]): string[] {
   return [...new Set(events.map((event) => event.type))].sort();
+}
+
+function isMoneyEvent(type: string): boolean {
+  return type.startsWith("paypal.order.") || type.startsWith("checkout.") || type.startsWith("approval.");
+}
+
+function formatPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(payload).map(([key, value]) => {
+    if (typeof value === "number" && /cents$/i.test(key) && Number.isSafeInteger(value)) {
+      return [key.replace(/cents$/i, ""), money(value)];
+    }
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const nested = value as Record<string, unknown>;
+      if (key === "amount" && nested.currencyCode === "USD" && typeof nested.value === "string") {
+        return [key, { ...nested, value: `USD $${nested.value}` }];
+      }
+      return [key, formatPayload(nested)];
+    }
+    return [key, value];
+  }));
 }
 
 function compare(left: LedgerEvent, right: LedgerEvent, key: SortKey, asc: boolean): number {

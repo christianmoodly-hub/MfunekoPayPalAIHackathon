@@ -9,6 +9,7 @@ import { AppShell } from "@/components/app-shell";
 import { formatUsd } from "@/components/mandates/mandate-card";
 import { Button } from "@/components/ui/button";
 import { mandateSchema, proposedPurchaseSchema } from "@/lib/policy/schema";
+import { formatMoneyInText } from "@/lib/money";
 
 const approvalStatusSchema = z.enum([
   "pending",
@@ -51,6 +52,7 @@ export function ApprovalScreen({ id }: { id: string }) {
   const [walletLinked, setWalletLinked] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"approve" | "decline" | null>(null);
+  const [now, setNow] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +73,7 @@ export function ApprovalScreen({ id }: { id: string }) {
         return;
       }
       setApproval(parsed.data.approval);
+      setNow(Date.now());
       const [mandateResponse, walletResponse] = await Promise.all([
         fetch(`/api/mandates/${parsed.data.approval.mandateId}`),
         fetch("/api/wallet"),
@@ -95,7 +98,7 @@ export function ApprovalScreen({ id }: { id: string }) {
     };
   }, [id]);
 
-  const expired = approval ? approval.status === "expired" || (approval.status === "pending" && Date.parse(approval.expiresAt) <= Date.now()) : false;
+  const expired = approval ? approval.status === "expired" || (now > 0 && approval.status === "pending" && Date.parse(approval.expiresAt) <= now) : false;
   const actionable = approval?.status === "pending" && !expired;
 
   async function approve() {
@@ -184,7 +187,7 @@ export function ApprovalScreen({ id }: { id: string }) {
                   <ul className="flex flex-col gap-2">
                     {approval.reasons.map((reason) => (
                       <li key={reason} className="rounded-xl border border-[#fde68a] bg-card px-4 py-3 text-sm text-[#334155]">
-                        {reason}
+                        {formatMoneyInText(reason)}
                       </li>
                     ))}
                   </ul>
@@ -211,7 +214,7 @@ export function ApprovalScreen({ id }: { id: string }) {
                             <div>
                               <p className="font-semibold">{item.merchant}</p>
                               <p className="font-mono text-[11px] text-[#545f73]">
-                                {item.category ?? "Uncategorized"} · qty {item.quantity}
+                                {shortCategory(item.category)} · qty {item.quantity}
                                 {productId ? ` · ${productId}` : ""}
                               </p>
                             </div>
@@ -247,7 +250,7 @@ export function ApprovalScreen({ id }: { id: string }) {
                 <p className="mt-3 text-xs text-[#92400e]">The stated total does not match the line items. Approval uses the expected charge.</p>
               ) : null}
               <p className="mt-4 text-xs text-[#545f73]">
-                {walletLinked ? "PayPal sandbox wallet is linked." : walletLinked === false ? "PayPal sandbox wallet is not linked." : "Checking the PayPal sandbox vault…"}
+                {walletLinked ? "PayPal sandbox wallet is linked." : walletLinked === false ? "PayPal sandbox wallet is not linked." : "Loading saved wallet status…"}
               </p>
               <div className="mt-5 flex flex-col gap-2">
                 <Button className="h-11 w-full" disabled={!actionable || busy !== null} onClick={() => void approve()}>
@@ -318,10 +321,14 @@ function shortId(id: string): string {
   return id.slice(0, 8).toUpperCase();
 }
 
+function shortCategory(category: string | null): string {
+  return category?.split("/").filter(Boolean).at(-1) ?? "Uncategorized";
+}
+
 function formatTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return date.toLocaleString();
+  return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
