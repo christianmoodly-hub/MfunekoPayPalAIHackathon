@@ -2,7 +2,7 @@
 
 This is the path from an empty Render account to a running sandbox demo. PayPal stays in sandbox. No live charges.
 
-The Blueprint is `render.yaml`. It creates one web service, `mandate`, and one Postgres database, `mandate-db`.
+The Blueprint is `render.yaml`. It creates one web service, `mandate`. It uses the Postgres database that already exists in this workspace, named `PayPalAgent` (database name `paypalagent`).
 
 ## What the plan can do
 
@@ -10,9 +10,11 @@ Checked against [Render deploys](https://render.com/docs/deploys#pre-deploy-comm
 
 - A pre-deploy command runs after the build and before the new instance starts. Render recommends it for database migrations. It runs on its own instance, so files it writes are not kept. It uses pipeline minutes and has a 30 minute limit.
 - Pre-deploy commands are available for paid web services, private services, and background workers. A free web service does not run `preDeployCommand`.
-- The web service in this Blueprint uses plan `0.5c-512mb`, the smallest paid web plan listed in the web services docs. That plan runs `npm run db:migrate` on every deploy and does not spin down after 15 idle minutes.
-- Postgres uses the free plan. [Free Postgres expires after 30 days](https://render.com/docs/free), and the filesystem on the web service is ephemeral. The ledger and mandates live in Postgres.
-- If you change the web service to `free`, delete `preDeployCommand` and put the migrate step in the start command (`npm run db:migrate && npm start -- -H 0.0.0.0 -p $PORT`). Free instances also sleep after 15 minutes without traffic.
+- This workspace has no payment method. Blueprint validation of plan `0.5c-512mb` returns `need_payment_info`. The Blueprint therefore uses the free web plan.
+- On the free plan, `npm run db:migrate` runs at the end of the build command, while `drizzle-kit` is still installed. The start command is `npm start -- -H 0.0.0.0 -p $PORT`.
+- Free web instances sleep after 15 minutes without traffic. The first request after sleep waits for the process to start.
+- Postgres stays on the free plan that already exists. [Free Postgres expires after 30 days](https://render.com/docs/free). This database's expiry is shown on its Render page. The filesystem on the web service is ephemeral. The ledger and mandates live in Postgres.
+- The Render CLI can validate a Blueprint. It cannot create one. The first apply is the Dashboard prompt, or an equivalent web service created from this file.
 
 ## 1. Render account and Git
 
@@ -38,9 +40,10 @@ Render asks for every env var marked `sync: false`. Set them before the first ap
 
 These are already set by the Blueprint and should be left as written:
 
-- `DATABASE_URL` comes from `mandate-db`. The Blueprint allows database connections from anywhere (`0.0.0.0/0`), which is Render's default, so the web service and a one-time local client can use the external connection string.
 - `GEMINI_MODEL` is `gemini-3.8-flash`.
 - `PAYPAL_ENV` is `sandbox`.
+
+`DATABASE_URL` is also `sync: false`. Paste the **internal** connection string from the existing `PayPalAgent` database (Dashboard → the database → Connections). A Blueprint can only attach a database it creates itself, and this database already exists, so the file does not create a second one. The local `.env` can keep using the external connection string.
 
 Do not set `PAYPAL_ENV` to `live`. In production the process refuses to start unless `APP_URL` is a public `https` origin, `DEMO_PASSCODE` is set, and `PAYPAL_ENV` is exactly `sandbox`.
 
@@ -48,8 +51,8 @@ Do not set `PAYPAL_ENV` to `live`. In production the process refuses to start un
 
 ## 3. Apply and check the deploy
 
-1. Apply the Blueprint.
-2. Wait until the web service deploy is live. The pre-deploy log should show `npm run db:migrate` before the start command.
+1. Apply the Blueprint. The Render CLI command is `render blueprints validate render.yaml`. Applying it is the Dashboard confirmation, because the CLI has no apply command.
+2. Wait until the web service deploy is live. The build log should show `npm run db:migrate` after `npm run build`.
 3. Open `https://<your-host>/api/health`. It returns `{ "ok": true }` and does not ask for the passcode. Render uses that path as `healthCheckPath`.
 
 The service listens on `0.0.0.0` and Render's `PORT`.

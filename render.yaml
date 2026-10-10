@@ -1,23 +1,23 @@
-# Paid web service so database migrations can run before each deploy.
-# Render only runs preDeployCommand on paid web services, private services, and workers.
+# Free web service. This workspace has no payment method, so plan 0.5c-512mb
+# fails Blueprint validation with need_payment_info.
+# Free web services do not run preDeployCommand.
 # https://render.com/docs/deploys#pre-deploy-command
-# The current smallest paid web plan is 0.5c-512mb.
+# Migrations run in the build, which still has the drizzle-kit devDependency.
 # https://render.com/docs/web-services
+# DATABASE_URL is the existing PayPalAgent Postgres instance. A Blueprint cannot
+# adopt a database it did not create, so the connection string is entered by hand.
 services:
   - type: web
     name: mandate
     runtime: node
     region: oregon
-    plan: 0.5c-512mb
-    buildCommand: npm ci --include=dev && npm run build
-    preDeployCommand: npm run db:migrate
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build && npm run db:migrate
     startCommand: npm start -- -H 0.0.0.0 -p $PORT
     healthCheckPath: /api/health
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: mandate-db
-          property: connectionString
+        sync: false
       - key: APP_URL
         sync: false
       - key: DEMO_PASSCODE
@@ -34,12 +34,3 @@ services:
         sync: false
       - key: PAYPAL_ENV
         value: sandbox
-
-databases:
-  - name: mandate-db
-    databaseName: mandate
-    region: oregon
-    plan: free
-    ipAllowList:
-      - source: 0.0.0.0/0
-        description: web service and one-time local migrate
