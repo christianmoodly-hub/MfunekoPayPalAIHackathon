@@ -9,11 +9,6 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 <!-- END:nextjs-agent-rules -->
 
 
----
-description: Project rules for Mandate (PayPal AI hackathon)
-alwaysApply: true
----
-
 # Read first
 Read SPEC.md before making any change. It is the source of truth. If a request conflicts with it, say so instead of silently deviating.
 
@@ -23,6 +18,10 @@ Read SPEC.md before making any change. It is the source of truth. If a request c
 - Never trust model-stated totals. Recompute from line items using integer minor units (cents), never floats.
 - PayPal is sandbox only. Never hardcode secrets; read from env vars and keep .env.example updated.
 - Every meaningful step writes an append-only ledger event.
+- Never commit secrets, passwords or passcodes. `chargeVaulted` may only be imported from `src/lib/checkout`, and `operatorChargeVaulted` only from `scripts/`.
+- Release a spend hold only when PayPal definitively rejected the request (4xx). Otherwise keep it and record `checkout.needs_reconciliation`.
+- App code never edits or deletes ledger rows.
+- Tests must never touch the hosted database. DB tests use `DATABASE_URL_TEST` only.
 
 # Stack and style
 - TypeScript strict mode, Next.js App Router, Tailwind + shadcn/ui, Zod for schemas, Vitest for tests.
