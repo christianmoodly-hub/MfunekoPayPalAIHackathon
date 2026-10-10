@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 
+import { safeNextPath } from "./safe-next";
+
 export function EnterForm() {
   const router = useRouter();
   const params = useSearchParams();
@@ -28,8 +30,7 @@ export function EnterForm() {
       return;
     }
     const next = params.get("next");
-    const destination = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
-    router.push(destination);
+    router.push(safeNextPath(next, window.location.origin));
     router.refresh();
   }
 
