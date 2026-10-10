@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { describe, expect, it, vi } from "vitest";
 
+import { testSessionCookie } from "@/lib/auth/session";
+
 const state = vi.hoisted(() => ({
   events: [] as { type: string; payload: Record<string, unknown> }[],
   saved: [] as { vaultId: string; customerId: string | null }[],
@@ -45,7 +47,9 @@ describe("GET /api/paypal/link/return", () => {
     state.response = { id: "VAULT123", customer: { id: "customer-1" } };
 
     const response = await GET(
-      new NextRequest("http://localhost:3000/api/paypal/link/return?approval_token_id=SETUP123"),
+      new NextRequest("http://localhost:3000/api/paypal/link/return?approval_token_id=SETUP123", {
+        headers: { cookie: await testSessionCookie() },
+      }),
     );
 
     expect(response.status).toBe(307);
@@ -60,7 +64,11 @@ describe("GET /api/paypal/link/return", () => {
 
   it("redirects to linked=0 when PayPal omits the setup token", async () => {
     state.events = [];
-    const response = await GET(new NextRequest("http://localhost:3000/api/paypal/link/return"));
+    const response = await GET(
+      new NextRequest("http://localhost:3000/api/paypal/link/return", {
+        headers: { cookie: await testSessionCookie() },
+      }),
+    );
 
     expect(response.headers.get("location")).toBe("http://localhost:3000/mandates?linked=0");
     expect(state.events[0]?.type).toBe("paypal.vault.failed");

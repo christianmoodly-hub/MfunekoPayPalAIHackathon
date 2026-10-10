@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { describe, expect, it, vi } from "vitest";
 
+import { testSessionCookie } from "@/lib/auth/session";
+
 vi.mock("@/db/client", () => ({
   getDb: () => {
     throw new Error("confirm rejection tests must not touch the database");
@@ -35,7 +37,7 @@ const validEdits = {
 async function confirm(body: unknown) {
   const request = new NextRequest(`http://localhost/api/mandates/${id}/confirm`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie: await testSessionCookie() },
     body: JSON.stringify(body),
   });
   return POST(request, { params: Promise.resolve({ id }) });
@@ -48,6 +50,17 @@ async function expectRejected(body: unknown) {
 }
 
 describe("POST /api/mandates/[id]/confirm", () => {
+  it("requires the demo session", async () => {
+    process.env.DEMO_PASSCODE = "demo-gate";
+    const request = new NextRequest(`http://localhost/api/mandates/${id}/confirm`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(validEdits),
+    });
+    const response = await POST(request, { params: Promise.resolve({ id }) });
+    expect(response.status).toBe(401);
+  });
+
   it("accepts the editable fields", () => {
     expect(mandateEditsSchema.safeParse(validEdits).success).toBe(true);
   });

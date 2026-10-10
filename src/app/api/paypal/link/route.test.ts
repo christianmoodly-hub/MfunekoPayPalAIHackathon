@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { describe, expect, it, vi } from "vitest";
 
+import { testSessionCookie } from "@/lib/auth/session";
+
 const state = vi.hoisted(() => ({
   events: [] as { type: string; payload: Record<string, unknown> }[],
   response: {} as unknown,
@@ -57,7 +59,12 @@ describe("POST /api/paypal/link", () => {
       links: [{ href: "https://sandbox.paypal.com/agreements/approve?approval_session_id=SETUP123", rel: "approve" }],
     };
 
-    const response = await POST(new NextRequest("http://localhost:3000/api/paypal/link", { method: "POST" }));
+    const response = await POST(
+      new NextRequest("http://localhost:3000/api/paypal/link", {
+        method: "POST",
+        headers: { cookie: await testSessionCookie() },
+      }),
+    );
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -76,7 +83,12 @@ describe("POST /api/paypal/link", () => {
       details: [{ issue: "NOT_ENABLED", description: "Vault is not enabled for this REST app." }],
     });
 
-    const response = await POST(new NextRequest("http://localhost:3000/api/paypal/link", { method: "POST" }));
+    const response = await POST(
+      new NextRequest("http://localhost:3000/api/paypal/link", {
+        method: "POST",
+        headers: { cookie: await testSessionCookie() },
+      }),
+    );
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: "Vault is not enabled for this REST app." });

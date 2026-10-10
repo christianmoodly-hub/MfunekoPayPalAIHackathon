@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import { mandates } from "@/db/schema";
@@ -49,6 +49,11 @@ export async function confirmMandate(id: string, edits: unknown): Promise<Mandat
   }
 
   return fromRow(row);
+}
+
+export async function listMandates(): Promise<Mandate[]> {
+  const rows = await getDb().select().from(mandates).orderBy(desc(mandates.createdAt));
+  return rows.map(fromRow);
 }
 
 export async function getMandate(id: string): Promise<Mandate | null> {

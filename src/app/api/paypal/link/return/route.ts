@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { requireSession } from "@/lib/auth/guard";
 import { appendLedgerEvent } from "@/lib/ledger";
 import { createPayPalClient } from "@/lib/paypal/client";
 import { readPayPalEnv } from "@/lib/paypal/config";
@@ -7,6 +8,10 @@ import { completeVaultLink, setupTokenIdFromSearch, vaultFailurePayload } from "
 import { insertPaymentMethod } from "@/lib/paypal/payment-methods";
 
 export async function GET(request: NextRequest) {
+  const denied = await requireSession(request);
+  if (denied) {
+    return denied;
+  }
   const setupTokenId = setupTokenIdFromSearch(request.nextUrl.searchParams);
   if (!setupTokenId) {
     await appendLedgerEvent({

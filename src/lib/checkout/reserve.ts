@@ -3,6 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { ledgerEvents } from "@/db/schema";
 import { appendLedgerEvent } from "@/lib/ledger";
+import { currentRunId } from "@/lib/ledger/context";
 
 import { openSpendCents } from "./accounting";
 import { releaseExpiredOrderHolds } from "./holds";
@@ -53,15 +54,21 @@ export async function reserveSpendInDb(input: {
     await tx.insert(ledgerEvents).values({
       type: "checkout.reserved",
       mandateId: input.mandateId,
+      runId: currentRunId(),
       payload: { reservationId: input.reservationId, amountCents: input.amountCents },
     });
   });
 }
 
-export async function releaseSpendInDb(input: { mandateId: string; reservationId: string }): Promise<void> {
+export async function releaseSpendInDb(input: {
+  mandateId: string;
+  reservationId: string;
+  runId?: string | null;
+}): Promise<void> {
   await appendLedgerEvent({
     type: "checkout.released",
     mandateId: input.mandateId,
+    runId: input.runId,
     payload: { reservationId: input.reservationId },
   });
 }

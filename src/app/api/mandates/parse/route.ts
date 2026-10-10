@@ -1,3 +1,5 @@
+import { requireSession } from "@/lib/auth/guard";
+import { clientIp, takeRateLimit } from "@/lib/auth/rate-limit";
 import { createGeminiGenerate } from "@/lib/gemini/client";
 import { readGeminiEnv } from "@/lib/gemini/env";
 import { redactSecrets } from "@/lib/gemini/redact";
@@ -7,6 +9,14 @@ import { createMandateFromText } from "@/lib/mandate/service";
 import { MandateStoreError } from "@/lib/mandate/store";
 
 export async function POST(request: Request) {
+  const denied = await requireSession(request);
+  if (denied) {
+    return denied;
+  }
+  if (!takeRateLimit(`parse:${clientIp(request)}`)) {
+    return Response.json({ error: "Too many requests." }, { status: 429 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();

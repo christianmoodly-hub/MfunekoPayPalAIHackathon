@@ -1,6 +1,7 @@
 import { ledgerEvents } from "@/db/schema";
 import { getDb } from "@/db/client";
 
+import { currentRunId } from "./context";
 import { ledgerEventInputSchema, type LedgerEventInput } from "./schema";
 
 export async function appendLedgerEvent(input: LedgerEventInput) {
@@ -12,6 +13,7 @@ export async function appendLedgerEvent(input: LedgerEventInput) {
       type: event.type,
       payload: event.payload,
       mandateId: event.mandateId ?? null,
+      runId: event.runId ?? currentRunId(),
     })
     .returning();
 

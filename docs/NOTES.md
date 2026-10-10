@@ -14,7 +14,7 @@ Research for Milestone M0. PayPal calls in `src/lib/paypal` follow these pages. 
 
 Sandbox base URL is `https://api-m.sandbox.paypal.com`. Access tokens come from `POST /v1/oauth2/token` with HTTP Basic client credentials and `grant_type=client_credentials`. The create-order reference lists that token URL for the client-credentials flow.
 
-Create order is `POST /v2/checkout/orders`. A capture-intent order needs `intent: "CAPTURE"` and at least one purchase unit with `amount.currency_code` and `amount.value`. Amounts are decimal strings. A successful create with no payment source returns status `CREATED`, HTTP 201, and HATEOAS links. The buyer approval link is `rel: "approve"` (`https://www.sandbox.paypal.com/checkoutnow?token=ORDER_ID`). Orders stay in `CREATED` for about 3 hours.
+Create order is `POST /v2/checkout/orders`. A capture-intent order needs `intent: "CAPTURE"` and at least one purchase unit with `amount.currency_code` and `amount.value`. Amounts are decimal strings. A successful create with no payment source returns status `CREATED`, HTTP 201, and HATEOAS links. The buyer approval link is `rel: "approve"` (`https://www.sandbox.paypal.com/checkoutnow?token=ORDER_ID`). The return handler reads that `token` as the order id and ignores every other query parameter. Cancel uses the same `token` lookup. Orders stay in `CREATED` for about 3 hours.
 
 Capture is `POST /v2/checkout/orders/{id}/capture`. The capture reference says the buyer must approve the order first, or the request must include a valid `payment_source`. An empty JSON body is enough when the payment source was already confirmed. A successful capture returns status `COMPLETED`.
 

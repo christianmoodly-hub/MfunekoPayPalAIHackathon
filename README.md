@@ -17,9 +17,15 @@ Put values in `.env` before `db:migrate`. `.env` is gitignored. `npm install` po
 
 ## Environment variables
 
-`DATABASE_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `CHANNEL3_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_ENV`
+`DATABASE_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `CHANNEL3_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_ENV`, `DEMO_PASSCODE`
 
 `PAYPAL_ENV` must be `sandbox`.
+
+## Demo access
+
+Every page and API route checks `DEMO_PASSCODE`. Open `/enter`, submit the passcode, and the app sets an httpOnly `mandate_demo` cookie (`SameSite=Lax`, so a PayPal redirect back to this site still includes it). `POST /api/session` with `{ "passcode": "..." }` does the same thing. The cookie stores an HMAC of the passcode, not the passcode itself. If `DEMO_PASSCODE` is missing, API routes return 500 and pages stay on the gate.
+
+`POST /api/mandates/parse` and `POST /api/runs` also allow 8 requests per minute per IP address. The counter lives in memory for that server process, so it resets on restart and is not shared across instances. A request past the limit gets `429` and `{ "error": "Too many requests." }`.
 
 ## Tools
 

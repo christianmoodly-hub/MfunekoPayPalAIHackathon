@@ -3,6 +3,7 @@ import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle
 export const ledgerEvents = pgTable("ledger_events", {
   id: uuid("id").primaryKey().defaultRandom(),
   mandateId: text("mandate_id"),
+  runId: uuid("run_id"),
   type: text("type").notNull(),
   payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -43,9 +44,20 @@ export const approvals = pgTable("approvals", {
   status: text("status").notNull(),
   orderId: text("order_id"),
   reservationId: text("reservation_id"),
+  runId: uuid("run_id"),
   expectedCents: integer("expected_cents").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   orderedAt: timestamp("ordered_at", { withTimezone: true }),
   capturedOrder: jsonb("captured_order").$type<Record<string, unknown> | null>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const runs = pgTable("runs", {
+  id: uuid("id").primaryKey(),
+  mandateId: text("mandate_id").notNull(),
+  status: text("status").notNull(),
+  outcome: jsonb("outcome").$type<Record<string, unknown> | null>(),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

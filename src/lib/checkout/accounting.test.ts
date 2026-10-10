@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { openSpendCents, type SpendEvent } from "./accounting";
+import { remainingCents, spendBreakdown, openSpendCents, type SpendEvent } from "./accounting";
 
 const mandateId = "mandate-1";
 
@@ -72,5 +72,26 @@ describe("openSpendCents", () => {
     ];
 
     expect(openSpendCents(events, mandateId)).toBe(400);
+  });
+});
+
+describe("spendBreakdown", () => {
+  it("separates captured spend from an open hold", () => {
+    const events: SpendEvent[] = [
+      {
+        type: "paypal.order.captured",
+        mandateId,
+        payload: { orderId: "ORDER1", amount: { currencyCode: "USD", value: "4.00" } },
+      },
+      {
+        type: "checkout.reserved",
+        mandateId,
+        payload: { reservationId: "r2", amountCents: 250 },
+      },
+    ];
+
+    expect(spendBreakdown(events, mandateId)).toEqual({ spentCents: 400, heldCents: 250 });
+    expect(remainingCents(1000, 400, 250)).toBe(350);
+    expect(remainingCents(100, 80, 50)).toBe(-30);
   });
 });

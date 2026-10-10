@@ -1,8 +1,10 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
+import { z } from "zod";
 
 import { getDb } from "@/db/client";
 import { approvals } from "@/db/schema";
 import type { LedgerEventInput } from "@/lib/ledger/schema";
+import { currentRunId } from "@/lib/ledger/context";
 import { getMandate } from "@/lib/mandate/store";
 import { approvalUrl, paypalOrderSchema, type PayPalOrder } from "@/lib/paypal/schema";
 import { evaluatePolicy, type PolicyVerdict } from "@/lib/policy";
@@ -20,9 +22,10 @@ export type StoredApproval = {
   purchase: ProposedPurchase;
   productIds: string[];
   reasons: string[];
-  status: "pending" | "ordering" | "ordered" | "blocked" | "expired" | "captured";
+  status: "pending" | "ordering" | "ordered" | "blocked" | "expired" | "captured" | "declined" | "cancelled";
   orderId: string | null;
   reservationId: string | null;
+  runId?: string | null;
   expectedCents: number;
   expiresAt: string;
   orderedAt?: string | null;
@@ -282,23 +285,17 @@ export async function captureAfterApproval(
 
 export async function loadApprovalRecord(id: string): Promise<StoredApproval | null> {
   const [row] = await getDb().select().from(approvals).where(eq(approvals.id, id)).limit(1);
-  if (!row) {
-    return null;
-  }
-  return {
-    id: row.id,
-    mandateId: row.mandateId,
-    purchase: proposedPurchaseSchema.parse(row.purchase),
-    productIds: row.productIds,
-    reasons: row.reasons,
-    status: row.status as StoredApproval["status"],
-    orderId: row.orderId,
-    reservationId: row.reservationId,
-    expectedCents: row.expectedCents,
-    expiresAt: row.expiresAt.toISOString(),
-    orderedAt: row.orderedAt ? row.orderedAt.toISOString() : null,
-    capturedOrder: capturedOrderFrom(row.capturedOrder),
-  };
+  return row ? approvalFromRow(row) : null;
+}
+
+export async function findApprovalByOrderId(orderId: string): Promise<StoredApproval | null> {
+  const [row] = await getDb()
+    .select()
+    .from(approvals)
+    .where(eq(approvals.orderId, orderId))
+    .orderBy(desc(approvals.createdAt))
+    .limit(1);
+  return row ? approvalFromRow(row) : null;
 }
 
 export async function claimApprovalRecord(id: string): Promise<StoredApproval | null> {
@@ -307,23 +304,7 @@ export async function claimApprovalRecord(id: string): Promise<StoredApproval | 
     .set({ status: "ordering" })
     .where(and(eq(approvals.id, id), eq(approvals.status, "pending")))
     .returning();
-  if (!row) {
-    return null;
-  }
-  return {
-    id: row.id,
-    mandateId: row.mandateId,
-    purchase: proposedPurchaseSchema.parse(row.purchase),
-    productIds: row.productIds,
-    reasons: row.reasons,
-    status: "ordering",
-    orderId: row.orderId,
-    reservationId: row.reservationId,
-    expectedCents: row.expectedCents,
-    expiresAt: row.expiresAt.toISOString(),
-    orderedAt: row.orderedAt ? row.orderedAt.toISOString() : null,
-    capturedOrder: capturedOrderFrom(row.capturedOrder),
-  };
+  return row ? approvalFromRow(row) : null;
 }
 
 export async function saveApprovalRecord(approval: StoredApproval): Promise<void> {
@@ -336,6 +317,7 @@ export async function saveApprovalRecord(approval: StoredApproval): Promise<void
     status: approval.status,
     orderId: approval.orderId,
     reservationId: approval.reservationId,
+    runId: approval.runId ?? currentRunId(),
     expectedCents: approval.expectedCents,
     expiresAt: new Date(approval.expiresAt),
     orderedAt: approval.orderedAt ? new Date(approval.orderedAt) : null,
@@ -348,6 +330,135 @@ export async function saveApprovalRecord(approval: StoredApproval): Promise<void
     return;
   }
   await db.update(approvals).set(values).where(eq(approvals.id, approval.id));
+}
+
+const approvalStatusSchema = z.enum([
+  "pending",
+  "ordering",
+  "ordered",
+  "blocked",
+  "expired",
+  "captured",
+  "declined",
+  "cancelled",
+]);
+
+export const publicApprovalSchema = z.object({
+  id: z.string(),
+  mandateId: z.string(),
+  runId: z.string().nullable(),
+  status: approvalStatusSchema,
+  reasons: z.array(z.string()),
+  purchase: proposedPurchaseSchema,
+  productIds: z.array(z.string()),
+  expectedCents: z.number().int(),
+  expiresAt: z.string(),
+  orderId: z.string().nullable(),
+});
+
+export type PublicApproval = z.infer<typeof publicApprovalSchema>;
+
+export function publicApproval(approval: StoredApproval): PublicApproval {
+  return publicApprovalSchema.parse({
+    id: approval.id,
+    mandateId: approval.mandateId,
+    runId: approval.runId ?? null,
+    status: approval.status,
+    reasons: approval.reasons,
+    purchase: approval.purchase,
+    productIds: approval.productIds,
+    expectedCents: approval.expectedCents,
+    expiresAt: approval.expiresAt,
+    orderId: approval.orderId,
+  });
+}
+
+export class ApprovalCloseError extends Error {
+  readonly statusCode = 409;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ApprovalCloseError";
+  }
+}
+
+export type CloseDeps = {
+  release: (input: { mandateId: string; reservationId: string; runId?: string | null }) => Promise<void>;
+  save: (approval: StoredApproval) => Promise<void>;
+  appendLedger: (input: LedgerEventInput) => Promise<unknown>;
+};
+
+export async function closeStoredApproval(
+  approval: StoredApproval,
+  status: "declined" | "cancelled",
+  deps: CloseDeps,
+): Promise<StoredApproval> {
+  if (approval.status === "declined" || approval.status === "cancelled") {
+    return approval;
+  }
+  if (approval.status === "captured") {
+    throw new ApprovalCloseError("A captured approval cannot be closed.");
+  }
+  if (approval.reservationId && (approval.status === "ordered" || approval.status === "ordering")) {
+    await deps.release({
+      mandateId: approval.mandateId,
+      reservationId: approval.reservationId,
+      runId: approval.runId ?? null,
+    });
+  }
+  const next = { ...approval, status };
+  await deps.save(next);
+  await deps.appendLedger({
+    type: status === "declined" ? "approval.declined" : "approval.cancelled",
+    mandateId: approval.mandateId,
+    runId: approval.runId ?? null,
+    payload: { approvalId: approval.id, reservationId: approval.reservationId },
+  });
+  return next;
+}
+
+export async function declineApproval(id: string): Promise<StoredApproval | null> {
+  const approval = await loadApprovalRecord(id);
+  if (!approval) {
+    return null;
+  }
+  return closeStoredApproval(approval, "declined", await closeDeps());
+}
+
+export async function cancelApprovalByOrderId(orderId: string): Promise<StoredApproval | null> {
+  const approval = await findApprovalByOrderId(orderId);
+  if (!approval) {
+    return null;
+  }
+  return closeStoredApproval(approval, "cancelled", await closeDeps());
+}
+
+function approvalFromRow(row: typeof approvals.$inferSelect): StoredApproval {
+  return {
+    id: row.id,
+    mandateId: row.mandateId,
+    purchase: proposedPurchaseSchema.parse(row.purchase),
+    productIds: row.productIds,
+    reasons: row.reasons,
+    status: approvalStatusSchema.parse(row.status),
+    orderId: row.orderId,
+    reservationId: row.reservationId,
+    runId: row.runId,
+    expectedCents: row.expectedCents,
+    expiresAt: row.expiresAt.toISOString(),
+    orderedAt: row.orderedAt ? row.orderedAt.toISOString() : null,
+    capturedOrder: capturedOrderFrom(row.capturedOrder),
+  };
+}
+
+async function closeDeps(): Promise<CloseDeps> {
+  const { releaseSpendInDb } = await import("./reserve");
+  const { appendLedgerEvent } = await import("@/lib/ledger");
+  return {
+    release: releaseSpendInDb,
+    save: saveApprovalRecord,
+    appendLedger: appendLedgerEvent,
+  };
 }
 
 async function resolveDeps(overrides: Partial<ApprovalDeps>): Promise<ApprovalDeps> {
@@ -382,7 +493,7 @@ async function resolveDeps(overrides: Partial<ApprovalDeps>): Promise<ApprovalDe
           input.lineItems,
           input.mandateId,
           `${origin}/api/paypal/order/return`,
-          `${origin}/mandates?checkout=cancelled`,
+          `${origin}/api/paypal/order/cancel`,
         ),
         input.idempotencyKey,
       ),

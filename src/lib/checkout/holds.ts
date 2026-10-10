@@ -47,6 +47,7 @@ async function expireInside(tx: SpendTx, mandateId: string, now: Date): Promise<
     await tx.insert(ledgerEvents).values({
       type: "checkout.released",
       mandateId,
+      runId: row.runId,
       payload: { reservationId: row.reservationId, reason: "PayPal order expired." },
     });
   }

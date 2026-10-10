@@ -1,9 +1,14 @@
 import type { NextRequest } from "next/server";
 
+import { requireSession } from "@/lib/auth/guard";
 import { confirmSavedMandate } from "@/lib/mandate/service";
 import { MandateStoreError } from "@/lib/mandate/store";
 
 export async function POST(request: NextRequest, context: RouteContext<"/api/mandates/[id]/confirm">) {
+  const denied = await requireSession(request);
+  if (denied) {
+    return denied;
+  }
   const { id } = await context.params;
   let body: unknown;
   try {

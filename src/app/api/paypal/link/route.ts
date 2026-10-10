@@ -1,11 +1,16 @@
 import type { NextRequest } from "next/server";
 
+import { requireSession } from "@/lib/auth/guard";
 import { appendLedgerEvent } from "@/lib/ledger";
 import { PayPalApiError, createPayPalClient } from "@/lib/paypal/client";
 import { readPayPalEnv } from "@/lib/paypal/config";
 import { beginVaultLink, vaultFailurePayload } from "@/lib/paypal/link";
 
 export async function POST(request: NextRequest) {
+  const denied = await requireSession(request);
+  if (denied) {
+    return denied;
+  }
   const origin = new URL(request.url).origin;
   try {
     const result = await beginVaultLink({
