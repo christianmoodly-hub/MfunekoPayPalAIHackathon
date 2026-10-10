@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { eq, sql } from "drizzle-orm";
 import { afterAll, expect, it } from "vitest";
 
@@ -23,27 +21,17 @@ const purchase = {
   ],
 };
 
-function ensureDatabaseUrl() {
-  if (process.env.DATABASE_URL) {
-    return;
-  }
-  const line = readFileSync(".env", "utf8")
-    .split(/\r?\n/)
-    .find((item) => item.startsWith("DATABASE_URL="));
-  if (!line) {
-    throw new Error("DATABASE_URL is not set.");
-  }
-  process.env.DATABASE_URL = line.slice("DATABASE_URL=".length).trim().replace(/^["']|["']$/g, "");
-}
+const testDatabaseUrl = process.env.DATABASE_URL_TEST;
+if (testDatabaseUrl) process.env.DATABASE_URL = testDatabaseUrl;
+const dbIt = it.skipIf(!testDatabaseUrl);
 
 afterAll(async () => {
   await closeDb();
 });
 
-it(
+dbIt(
   "releases an ordered hold older than 3 hours when spend is computed",
   async () => {
-    ensureDatabaseUrl();
     const mandateId = crypto.randomUUID();
     const approvalId = crypto.randomUUID();
     const reservationId = crypto.randomUUID();
