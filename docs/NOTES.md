@@ -265,3 +265,15 @@ Reservation `ba296494-8040-475c-b9f2-df69db2f840e` on mandate `6c6d6aa7-f203-429
 Dashboard and ledger balances use the shared mandate balance query. It reads wallet linkage from the saved database row and uses SQL aggregates over mandate-linked captures and reservations; unlinked sandbox captures are reported in their own total and do not count as mandate spend. The supporting index is `ledger_events(mandate_id, type)`.
 
 The baseline in `docs/TEST-REPORT.md` measured mandate list loading at 25 seconds and up to about a minute as mandates were added. After replacing the PayPal vault check and per-mandate ledger reads with one indexed SQL snapshot, five `/api/mandates` requests in local `next dev` took 428–1,429 ms (median 819 ms); the first request after edits was 1.4 seconds while Turbopack recompiled. Three of the five measured requests were below 1 second.
+
+## Evals have teeth
+
+Mutation checks temporarily changed one policy rule at a time, ran `npm run evals`, then restored the source before applying the next mutation. The restored suite passed afterward (27 PASS; the parallel database case was SKIPPED because `DATABASE_URL_TEST` was unset).
+
+| Mutation | Eval cases that failed |
+| --- | --- |
+| Total cap `>` changed to `>=` | Total cap exact |
+| Per-item cap condition removed | Per-item cap plus one cent |
+| Unknown required free returns stopped escalating | Injected return claims are ignored; Unknown required free returns |
+
+`git diff -- src/lib/policy/evaluate.ts` was empty after restoration.

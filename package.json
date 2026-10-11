@@ -10,6 +10,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "evals": "node scripts/run-evals.mjs",
+    "smoke": "node scripts/smoke.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "hello-order": "node --env-file=.env --import tsx scripts/hello-order.ts",

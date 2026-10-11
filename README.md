@@ -53,6 +53,14 @@ npm run typecheck
 npm run lint
 ```
 
+Check a deployed instance with `DEMO_PASSCODE` set in your local environment:
+
+```bash
+npm run smoke -- https://<deployed-host>
+```
+
+The smoke command verifies the unauthenticated passcode gate, health route, authenticated database/migration access, and wallet linkage. `npm run smoke -- https://<deployed-host> --run` additionally creates a persistent throwaway mandate and starts one live agent run. It can initiate a PayPal sandbox purchase up to $3 if policy approves; it requires configured Gemini and Channel3 services.
+
 Database integration tests use `DATABASE_URL_TEST` only, reject non-loopback hosts, and are skipped when it is unset. To run them against a disposable local Docker Postgres database, start one and point both migrations and tests at that local URL:
 
 ```powershell
