@@ -12,6 +12,7 @@ import {
   Receipt,
   Search,
   Wallet,
+  X,
 } from "lucide-react";
 import { z } from "zod";
 
@@ -41,6 +42,27 @@ const mandateListSchema = z.object({
 
 type Filter = "all" | MandateStatus;
 
+const quickStartExamples = [
+  {
+    outcome: "Approve",
+    text: "Buy printer paper for up to $20. Only ask me before spending more than $15.",
+    caveat: "Usually approves below $15; catalog prices can change the result.",
+    tone: "green",
+  },
+  {
+    outcome: "Escalate",
+    text: "Buy printer paper for up to $20. It must have free returns.",
+    caveat: "Unknown required returns data escalates to a human.",
+    tone: "amber",
+  },
+  {
+    outcome: "Block",
+    text: "Buy printer paper, spend no more than $2.",
+    caveat: "Usually blocks if catalog prices exceed $2.",
+    tone: "red",
+  },
+] as const;
+
 const filters: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "active", label: "Active" },
@@ -59,6 +81,8 @@ export function MandateDashboard() {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
+  const [exampleText, setExampleText] = useState("");
+  const [quickStartDismissed, setQuickStartDismissed] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [runningId, setRunningId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -160,8 +184,10 @@ export function MandateDashboard() {
     return (
       <AppShell walletLinked={wallet ? wallet.linked : null}>
         <MandateForm
+          initialText={exampleText}
           onDone={() => {
             setCreating(false);
+            setExampleText("");
             setReloadKey((value) => value + 1);
           }}
         />
@@ -190,6 +216,63 @@ export function MandateDashboard() {
           </div>
         </div>
       </section>
+
+      {mandates !== null && mandates.length < 3 && !quickStartDismissed ? (
+        <section className="relative mb-6 rounded-3xl border border-[#c7d8f2] bg-card p-5 shadow-sm sm:p-6" aria-labelledby="quick-start-title">
+          <button
+            type="button"
+            className="absolute right-4 top-4 rounded-lg p-2 text-[#545f73] hover:bg-[#eff4ff] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            aria-label="Dismiss quick start examples"
+            onClick={() => setQuickStartDismissed(true)}
+          >
+            <X className="size-4" />
+          </button>
+          <div className="mb-4 pr-10">
+            <div className="flex items-center gap-2">
+              <span className="flex size-7 items-center justify-center rounded-lg bg-[#eff4ff] font-mono text-xs font-bold text-primary">3</span>
+              <h2 id="quick-start-title" className="text-lg font-semibold tracking-tight">Try it in 3 steps</h2>
+            </div>
+            <p className="mt-1 text-sm text-[#404848]">Each example fills the existing mandate form. Nothing is parsed or saved until you choose to continue.</p>
+          </div>
+          <ol className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" aria-label="Quick start steps">
+            {[
+              "Choose an example",
+              "Parse and review the rules",
+              "Confirm the mandate",
+            ].map((step, index) => (
+              <li key={step} className="flex items-center gap-2 text-xs font-semibold text-[#404848]">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#eff4ff] font-mono text-[11px] text-primary">{index + 1}</span>
+                <span>{step}</span>
+                {index < 2 ? <span className="hidden font-mono text-[#94a3b8] sm:inline" aria-hidden="true">→</span> : null}
+              </li>
+            ))}
+          </ol>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            {quickStartExamples.map((example) => {
+              const toneClass = example.tone === "green"
+                ? "border-l-[#059669] bg-[#ecfdf5] text-[#065f46]"
+                : example.tone === "amber"
+                  ? "border-l-[#d97706] bg-[#fffbeb] text-[#92400e]"
+                  : "border-l-[#dc2626] bg-[#fef2f2] text-[#991b1b]";
+              return (
+                <button
+                  key={example.outcome}
+                  type="button"
+                  className="group flex min-h-36 flex-col items-start rounded-2xl border border-border border-l-4 bg-background p-4 text-left transition-colors hover:bg-[#f8faff] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                  onClick={() => {
+                    setExampleText(example.text);
+                    setCreating(true);
+                  }}
+                >
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${toneClass}`}>{example.outcome} example</span>
+                  <span className="mt-3 text-sm font-medium leading-5 text-foreground">{example.text}</span>
+                  <span className="mt-auto pt-3 text-xs leading-4 text-[#545f73]">{example.caveat}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section className="mb-6 rounded-3xl border border-border bg-card p-6 shadow-sm">
         {wallet === null ? (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   BadgeCheck,
   Ban,
@@ -77,8 +77,9 @@ const presets = [
 const control =
   "w-full rounded-lg border border-transparent bg-[#eff4ff] px-3 py-2 text-sm outline-none focus:border-primary focus:bg-card";
 
-export function MandateForm({ onDone }: { onDone?: () => void }) {
-  const [text, setText] = useState("");
+export function MandateForm({ onDone, initialText = "" }: { onDone?: () => void; initialText?: string }) {
+  const [text, setText] = useState(initialText);
+  const instructionRef = useRef<HTMLTextAreaElement>(null);
   const [mandateId, setMandateId] = useState<string | null>(null);
   const [fields, setFields] = useState<DraftFields>(emptyFields);
   const [status, setStatus] = useState<string | null>(null);
@@ -87,6 +88,12 @@ export function MandateForm({ onDone }: { onDone?: () => void }) {
   const [categoryDraft, setCategoryDraft] = useState("");
   const [allowedDraft, setAllowedDraft] = useState("");
   const [blockedDraft, setBlockedDraft] = useState("");
+
+  useEffect(() => {
+    if (initialText) {
+      instructionRef.current?.focus();
+    }
+  }, [initialText]);
 
   async function parseMandate() {
     setPending("parse");
@@ -178,6 +185,7 @@ export function MandateForm({ onDone }: { onDone?: () => void }) {
           </label>
           <textarea
             id="intent-input"
+            ref={instructionRef}
             className={`${control} min-h-28 text-base`}
             value={text}
             onChange={(event) => setText(event.target.value)}

@@ -1,67 +1,56 @@
 # Mandate
 
-Mandate is a shopping agent with spending rules that code enforces. You write a mandate in plain English. Gemini turns that text into structured limits. A shopping run searches Channel3, asks Gemini to pick one product, and builds a cart from the catalog data. A deterministic policy engine then approves, escalates, or blocks the purchase. Approved purchases are meant to be paid through the PayPal sandbox. Every step is written to an append-only ledger.
+Mandate lets a person delegate a shopping task without handing an AI unrestricted spending authority. Write the purchase rules in plain English; the app turns them into a mandate, searches real catalog offers, and proposes a cart. Deterministic code checks the merchant, category, price, budget, returns and delivery rules before any PayPal sandbox checkout.
 
-**The LLM proposes, deterministic code disposes.** The model never decides that money is spent. Gemini output is untrusted input. Prices, merchants, categories, return rules, and delivery dates are rebuilt on the server from Channel3. When Channel3 does not provide a field the mandate depends on, that field is set to a failing value and the policy engine blocks. PayPal is sandbox only.
+The problem it addresses is simple: a shopping agent can misunderstand a request, follow malicious product text, or exceed a budget. Mandate treats the model as a proposer. Only server policy can approve, escalate for a human, or block a purchase.
 
-## Setup
+## How a purchase flows
 
-```bash
-npm install
-cp .env.example .env
-npm run db:migrate
-npm run dev
+```mermaid
+flowchart LR
+  U[User writes mandate] --> P[Gemini parses structured rules]
+  P --> C[User reviews and confirms]
+  C --> S[Channel3 search and Gemini proposal]
+  S --> D{Deterministic policy check}
+  D -->|APPROVE| PP[PayPal sandbox order and capture]
+  D -->|ESCALATE| H[Human reviews and approves]
+  H --> PP
+  D -->|BLOCK| X[Stop: no order]
+  PP --> L[(Append-only audit ledger)]
+  D --> L
+  S --> L
+  P --> L
 ```
 
-Put values in `.env` before `db:migrate`. `.env` is gitignored. `npm install` points Git at `.githooks`, which rejects a commit when a staged file contains a Postgres URL with a username and password, a Gemini API key, or a password assignment.
+## Trust model
 
-## Environment variables
+- Gemini proposes structured mandate fields and a product selection. Zod validates model output; server-owned mandate identity, status and expiry cannot be set by the model.
+- Product names and descriptions are untrusted. Price, currency, merchant, category, and stock status come from structured Channel3 offers. Checkout re-fetches the selected merchant's current price.
+- The policy engine is deterministic code, with no LLM or network calls. It recomputes totals from integer cents, checks mandate state and spend caps, and gives BLOCK priority over human approval.
+- Unknown required return or delivery data escalates to a person. A human approval cannot override a BLOCK on checkout re-check.
+- A reserved spend hold stays in the append-only ledger if the payment result is uncertain; it is released only after a definitive PayPal 4xx rejection. PayPal is sandbox only.
 
-`DATABASE_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `CHANNEL3_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_ENV`, `DEMO_PASSCODE`, `APP_URL`
+## Judge the build
 
-`PAYPAL_ENV` must be `sandbox`.
+Hosted demo: **`https://<your-render-host>.onrender.com`**. Replace this placeholder with the active Render URL before submission. The demo passcode is in the Devpost testing instructions; no passcode is stored in this repository. See [docs/JUDGES.md](docs/JUDGES.md) for a five-minute walkthrough.
 
-## Demo access
+### Evals
 
-Every page and API route checks `DEMO_PASSCODE`. Open `/enter`, submit the passcode, and the app sets an httpOnly `mandate_demo` cookie (`SameSite=Lax`, so a PayPal redirect back to this site still includes it). `POST /api/session` with `{ "passcode": "..." }` does the same thing. The cookie stores an HMAC of the passcode, not the passcode itself. If `DEMO_PASSCODE` is missing, API routes return 500 and pages stay on the gate.
+The offline evals exercise the real policy, search, checkout, parser, accounting and replay paths with network dependencies faked. The parallel checkout case needs a local `DATABASE_URL_TEST` and is skipped otherwise.
 
-`POST /api/mandates/parse` and `POST /api/runs` also allow 8 requests per minute per IP address. The counter lives in memory for that server process, so it resets on restart and is not shared across instances. A request past the limit gets `429` and `{ "error": "Too many requests." }`.
+| Eval group | Result |
+| --- | --- |
+| Offline policy, prompt-injection, search, checkout, replay and parser cases | 27 PASS |
+| Parallel guarded checkouts against test Postgres | SKIPPED (`DATABASE_URL_TEST` unset in the recorded run) |
+| Live Gemini injection evals | Not run; opt-in only |
 
-## Tools
+Mutation check: deliberately changing the total cap, removing the per-item cap, and approving unknown required returns made the corresponding exact-cap, over-cap, and returns-injection evals fail. Restoring the policy returned the offline suite to green. Full results: [evals/RESULTS.md](evals/RESULTS.md); mutation details: [docs/NOTES.md](docs/NOTES.md#evals-have-teeth).
 
-- **Gemini** parses a mandate and ranks search candidates. The model name comes from `GEMINI_MODEL`. Both calls use JSON schema output and are checked with Zod. Ranking can return only a product id, a quantity, and a reasoning string.
-- **Channel3** supplies products through `POST /v1/search`. Product titles and descriptions are treated as untrusted data.
-- **PayPal Orders v2** (sandbox) creates and captures orders. `npm run hello-order` runs a card payment. `POST /api/paypal/link` starts a saved-wallet setup, and `npm run charge-vaulted -- <cents>` charges that wallet. Per-order buyer approval remains available when Vault is not enabled.
-- **Render** hosts the app: a web service and Postgres. The database URL comes from the environment. The filesystem is not used for storage.
-- **AG Grid Community** powers the ledger view with sorting, filters, pagination, and CSV audit export.
+### How it's tested
 
-## Try a shopping run
+GitHub Actions runs Node.js 22, lint, typecheck, tests and offline evals on every push. Run the same checks locally with `npm run lint`, `npm run typecheck`, `npm test` and `npm run evals`. Live Gemini evals are opt-in: `npm run evals -- --live`.
 
-Confirm a mandate in the app, then:
-
-```bash
-npm run shop -- <mandateId>
-```
-
-That uses the mandate's search query. Pass a query to override it: `npm run shop -- <mandateId> "office paper"`.
-
-## Checks
-
-```bash
-npm test
-npm run typecheck
-npm run lint
-```
-
-Check a deployed instance with `DEMO_PASSCODE` set in your local environment:
-
-```bash
-npm run smoke -- https://<deployed-host>
-```
-
-The smoke command verifies the unauthenticated passcode gate, health route, authenticated database/migration access, and wallet linkage. `npm run smoke -- https://<deployed-host> --run` additionally creates a persistent throwaway mandate and starts one live agent run. It can initiate a PayPal sandbox purchase up to $3 if policy approves; it requires configured Gemini and Channel3 services.
-
-Database integration tests use `DATABASE_URL_TEST` only, reject non-loopback hosts, and are skipped when it is unset. To run them against a disposable local Docker Postgres database, start one and point both migrations and tests at that local URL:
+Database integration tests use `DATABASE_URL_TEST` only, reject non-loopback hosts, and skip when it is unset. To run them against a disposable local Docker Postgres:
 
 ```powershell
 docker run --name mandate-test-db -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=mandate_test -p 5433:5432 -d postgres:16
@@ -70,18 +59,54 @@ $env:DATABASE_URL = $env:DATABASE_URL_TEST
 npm run db:migrate
 npm test
 Remove-Item Env:DATABASE_URL, Env:DATABASE_URL_TEST
+docker rm -f mandate-test-db
 ```
 
-The parallel checkout eval appends fixture events to that test ledger and does not delete ledger rows. Stop and remove the disposable database when finished with `docker rm -f mandate-test-db`.
+To smoke-check a deployment, set `DEMO_PASSCODE` locally and run `npm run smoke -- https://<deployed-host>`. The optional `--run` creates a permanent throwaway mandate and starts a real shopping run; it can trigger a sandbox purchase up to $3 if approved.
 
-## How it's tested
+## Tools used
 
-CI runs lint, typecheck, the test suite, and the offline adversarial evals. Run the evals locally with `npm run evals`; they call the real policy, shopping, checkout, and mandate parsing paths while faking network dependencies. Results are also written to [evals/RESULTS.md](evals/RESULTS.md). The parallel checkout case runs only against a loopback `DATABASE_URL_TEST`. Live Gemini evals run only when requested with `npm run evals -- --live` and Gemini credentials are configured.
-
-Latest local offline eval results:
-
-| Eval case group | Result |
+| Tool | How Mandate uses it |
 | --- | --- |
-| Policy, search, checkout, replay, and parser cases | 27 PASS |
-| Parallel database checkout | SKIPPED (`DATABASE_URL_TEST` unset) |
-| Live Gemini injection cases | Not run (opt-in only) |
+| PayPal Orders v2 | Creates buyer-approved orders and captures approved purchases in the PayPal sandbox. |
+| PayPal Vault payment tokens | Links a sandbox PayPal wallet for saved-wallet checkout; token IDs remain server-side. |
+| Gemini structured output | Parses natural-language mandates and ranks catalog candidates into schema-validated JSON. |
+| Channel3 search | Finds products and live USD merchant offers for the requested query. |
+| Channel3 product lookup | Re-fetches the selected product and merchant price before checkout. |
+| Channel3 categories | Supplies validated category slugs for mandate category rules. Channel3 does not provide return-policy or delivery estimates used by this app. |
+| Render | Hosts the Next.js web service and managed PostgreSQL database; migrations run during build. |
+| AG Grid Community | Displays append-only ledger events with sorting, filtering, pagination and CSV audit export. |
+
+## Screenshots
+
+These are replacement markers. Capture the real hosted UI before submission and replace the images in `docs/screenshots/`.
+
+| Dashboard | Run | Approval | Ledger |
+| --- | --- | --- | --- |
+| ![Dashboard screenshot placeholder](docs/screenshots/dashboard.svg) | ![Run page screenshot placeholder](docs/screenshots/run.svg) | ![Approval page screenshot placeholder](docs/screenshots/approval.svg) | ![Ledger screenshot placeholder](docs/screenshots/ledger.svg) |
+
+## Setup
+
+Requires Node.js 22+, npm, and a PostgreSQL database. Add the API credentials described in `.env.example`; PayPal must be configured for sandbox.
+
+```bash
+npm install
+cp .env.example .env
+# Fill in .env (never commit it)
+npm run db:migrate
+npm run dev
+```
+
+Open `http://localhost:3000`. Set `DEMO_PASSCODE` in `.env` and use it at `/enter`.
+
+## Honest limits
+
+- PayPal is sandbox only. No real funds move.
+- Fulfillment is simulated: the app can create or capture a sandbox payment, but it does not place or fulfill a retailer's order.
+- Channel3 catalog data does not include return-policy or delivery estimates. A mandate requiring either fact escalates to a human because the app cannot verify it.
+- The default Render hosting tiers can cold-start or be slow on the first request. Allow about a minute for the first dashboard or run page load.
+- The demo has one shared passcode, not per-user accounts. The ledger is append-only and test charges that have no mandate are shown separately.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

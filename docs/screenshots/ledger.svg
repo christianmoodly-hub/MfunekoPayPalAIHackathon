@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Ledger screenshot placeholder</title><desc id="desc">Replace this marker with a screenshot of the hosted Mandate ledger.</desc>
+  <rect width="960" height="540" rx="24" fill="#eff4ff"/><rect x="28" y="28" width="904" height="484" rx="20" fill="#fff" stroke="#cbd5e1"/>
+  <text x="480" y="250" text-anchor="middle" fill="#173b63" font-family="Arial,sans-serif" font-size="32" font-weight="700">Ledger screenshot</text><text x="480" y="292" text-anchor="middle" fill="#64748b" font-family="Arial,sans-serif" font-size="18">Replace placeholder before submission</text>
+</svg>

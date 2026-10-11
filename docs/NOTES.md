@@ -277,3 +277,15 @@ Mutation checks temporarily changed one policy rule at a time, ran `npm run eval
 | Unknown required free returns stopped escalating | Injected return claims are ignored; Unknown required free returns |
 
 `git diff -- src/lib/policy/evaluate.ts` was empty after restoration.
+
+## Live quick-start sample check
+
+On 2026-10-11, I ran the mandate parser, Channel3 catalog search, Gemini product ranking, and real policy path for the three dashboard examples. Spend history and ledger writes were faked and no checkout or PayPal call was made. All three produced their labeled outcome in that sample run:
+
+| Example | Live sample observation | Price dependence |
+| --- | --- | --- |
+| Approve | APPROVE; Staples offer $10.19, below the $15 escalation threshold and $20 cap | Yes. A price above $15 escalates; above $20 blocks. |
+| Escalate | ESCALATE; Staples offer $10.19, but Channel3 had no free-returns value | No for this catalog gap while the mandate requires free returns; a future verified true returns field could change the result. |
+| Block | BLOCK; selected Walmart offer $6.27 exceeded the $2 cap | Yes. A valid offer at or below $2 may not block. |
+
+These are observations from one live catalog/model run, not guaranteed outcomes. Prices and available offers change.
