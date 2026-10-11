@@ -3,10 +3,11 @@ import { afterAll, expect, it } from "vitest";
 
 import { closeDb, getDb } from "@/db/client";
 import { ledgerEvents } from "@/db/schema";
+import { readLocalTestDatabaseUrl } from "@/test/database-url";
 
 import { releaseSpendInDb, reserveSpendInDb, SpendReserveError } from "./reserve";
 
-const testDatabaseUrl = process.env.DATABASE_URL_TEST;
+const testDatabaseUrl = readLocalTestDatabaseUrl();
 if (testDatabaseUrl) process.env.DATABASE_URL = testDatabaseUrl;
 const dbIt = it.skipIf(!testDatabaseUrl);
 

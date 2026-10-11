@@ -33,7 +33,7 @@ Every page and API route checks `DEMO_PASSCODE`. Open `/enter`, submit the passc
 - **Channel3** supplies products through `POST /v1/search`. Product titles and descriptions are treated as untrusted data.
 - **PayPal Orders v2** (sandbox) creates and captures orders. `npm run hello-order` runs a card payment. `POST /api/paypal/link` starts a saved-wallet setup, and `npm run charge-vaulted -- <cents>` charges that wallet. Per-order buyer approval remains available when Vault is not enabled.
 - **Render** hosts the app: a web service and Postgres. The database URL comes from the environment. The filesystem is not used for storage.
-- **AG Grid** is the planned ledger view: sortable, filterable, expandable audit rows. The ledger is written now. The grid page is not built yet.
+- **AG Grid Community** powers the ledger view with sorting, filters, pagination, and CSV audit export.
 
 ## Try a shopping run
 
@@ -53,7 +53,7 @@ npm run typecheck
 npm run lint
 ```
 
-Database integration tests use `DATABASE_URL_TEST` only and are skipped when it is unset. To run them against a disposable local Docker Postgres database, start one and point both migrations and tests at that local URL:
+Database integration tests use `DATABASE_URL_TEST` only, reject non-loopback hosts, and are skipped when it is unset. To run them against a disposable local Docker Postgres database, start one and point both migrations and tests at that local URL:
 
 ```powershell
 docker run --name mandate-test-db -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=mandate_test -p 5433:5432 -d postgres:16
@@ -64,4 +64,16 @@ npm test
 Remove-Item Env:DATABASE_URL, Env:DATABASE_URL_TEST
 ```
 
-Stop and remove the disposable database when finished with `docker rm -f mandate-test-db`.
+The parallel checkout eval appends fixture events to that test ledger and does not delete ledger rows. Stop and remove the disposable database when finished with `docker rm -f mandate-test-db`.
+
+## How it's tested
+
+CI runs lint, typecheck, the test suite, and the offline adversarial evals. Run the evals locally with `npm run evals`; they call the real policy, shopping, checkout, and mandate parsing paths while faking network dependencies. Results are also written to [evals/RESULTS.md](evals/RESULTS.md). The parallel checkout case runs only against a loopback `DATABASE_URL_TEST`. Live Gemini evals run only when requested with `npm run evals -- --live` and Gemini credentials are configured.
+
+Latest local offline eval results:
+
+| Eval case group | Result |
+| --- | --- |
+| Policy, search, checkout, replay, and parser cases | 27 PASS |
+| Parallel database checkout | SKIPPED (`DATABASE_URL_TEST` unset) |
+| Live Gemini injection cases | Not run (opt-in only) |
